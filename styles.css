@@ -1,0 +1,1879 @@
+/* =============================================================================
+ * SHIVUCAM CCD-03 — the interface is the back of a 2003 compact camera.
+ * Graphite polycarbonate body, charcoal rubber keys, chrome selectors, one
+ * small transflective TFT. Every control is a part you could press.
+ *
+ * Only the chassis is themed. Chrome, signal lamps and the screen are the same
+ * parts in both bodies: graphite by default, silver under [data-theme="silver"].
+ * ========================================================================== */
+
+:root {
+  /* Body: graphite polycarbonate over a magnesium frame */
+  --body-hi: oklch(37% 0.004 100);
+  --body: oklch(30% 0.004 100);
+  --body-mid: oklch(26% 0.004 100);
+  --body-lo: oklch(20% 0.004 100);
+  --seam: oklch(13% 0.003 100);
+  --hairline: oklch(74% 0.004 100 / 0.16);
+
+  /* How light lands on a moulded edge, and how print is stamped into it */
+  --edge-hi: oklch(100% 0 0 / 0.16);
+  --edge: oklch(100% 0 0 / 0.11);
+  --edge-soft: oklch(100% 0 0 / 0.07);
+  --emboss: 0 1px 1px oklch(0% 0 0 / 0.55);
+
+  /* Thumb grip on the control side of the back */
+  --deck-hi: oklch(26% 0.004 100);
+  --deck-lo: oklch(20% 0.004 100);
+  --deck-dots: oklch(100% 0 0 / 0.05);
+  --divider: oklch(0% 0 0 / 0.45);
+  --divider-hi: oklch(100% 0 0 / 0.06);
+
+  /* LCD surround */
+  --bezel-hi: oklch(23% 0.004 100);
+  --bezel-lo: oklch(14% 0.004 100);
+
+  /* Charcoal rubber keys */
+  --key-hi: oklch(44% 0.005 100);
+  --key: oklch(34% 0.005 100);
+  --key-lo: oklch(24% 0.004 100);
+  --key-wall: oklch(14% 0.003 100);
+
+  /* Small moulded keys: the format selector */
+  --face-hi: oklch(38% 0.004 100);
+  --face-lo: oklch(29% 0.004 100);
+  --face-wall: oklch(16% 0.003 100);
+  --face-on-hi: oklch(20% 0.004 100);
+  --face-on-lo: oklch(27% 0.004 100);
+  --face-ink: oklch(93% 0.003 95);
+
+  /* Recessed runs: slider grooves, switch beds, selector wells */
+  --well-hi: oklch(18% 0.004 100);
+  --well-lo: oklch(24% 0.004 100);
+  --well-fill: oklch(63% 0.006 100);
+
+  /* The desk the camera is lying on */
+  --desk-1: oklch(26% 0.005 110);
+  --desk-2: oklch(21% 0.01 60);
+  --desk-3: oklch(12% 0.004 110);
+
+  /* Ink: white silkscreen */
+  --ink: oklch(93% 0.003 95);
+  --ink-dim: oklch(77% 0.004 95);
+  --ink-faint: oklch(66% 0.004 95);
+
+  --led-off: oklch(44% 0.004 95);
+  --focus: oklch(76% 0.16 68);
+
+  /* Chrome selectors and trim: the same alloy whatever colour the body is */
+  --chrome-hi: oklch(97% 0.003 240);
+  --chrome: oklch(84% 0.004 240);
+  --chrome-lo: oklch(62% 0.005 240);
+  --chrome-edge: oklch(48% 0.006 240);
+  --chrome-ink: oklch(27% 0.006 95);
+
+  /* Screen */
+  --lcd-deep: oklch(17% 0.016 205);
+  --lcd-lift: oklch(23% 0.024 200);
+  --lcd-ink: oklch(96% 0.004 200);
+  --text: oklch(95% 0.004 200);
+  --text-dim: oklch(80% 0.006 200);
+  --text-faint: oklch(64% 0.008 200);
+
+  /* Signal lamps */
+  --led-red: oklch(58% 0.21 27);
+  --led-green: oklch(78% 0.17 148);
+  --led-amber: oklch(79% 0.15 76);
+
+  --danger: oklch(56% 0.17 30);
+  --shadow: oklch(12% 0.01 100 / 0.5);
+
+  --r-body: 22px;
+  --r-key: 7px;
+  --r-lcd: 5px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-press: 90ms;
+  --dur-ui: 180ms;
+  --dur-view: 260ms;
+
+  --font-ui: "Archivo", system-ui, sans-serif;
+  --font-print: "Archivo Narrow", "Arial Narrow", sans-serif;
+  --font-lcd: "Silkscreen", ui-monospace, Menlo, monospace;
+}
+
+/* The champagne-silver body this camera also shipped in */
+[data-theme="silver"] {
+  --body-hi: oklch(93% 0.006 95);
+  --body: oklch(86% 0.008 95);
+  --body-mid: oklch(80% 0.009 93);
+  --body-lo: oklch(71% 0.01 90);
+  --seam: oklch(52% 0.008 90 / 0.6);
+  --hairline: oklch(45% 0.006 90 / 0.55);
+
+  --edge-hi: oklch(100% 0 0 / 0.9);
+  --edge: oklch(100% 0 0 / 0.7);
+  --edge-soft: oklch(100% 0 0 / 0.5);
+  --emboss: 0 1px 0 oklch(100% 0 0 / 0.7);
+
+  --deck-hi: oklch(88% 0.007 95);
+  --deck-lo: oklch(79% 0.009 92);
+  --deck-dots: oklch(60% 0.008 90 / 0.16);
+  --divider: oklch(58% 0.008 90 / 0.35);
+  --divider-hi: oklch(100% 0 0 / 0.55);
+
+  --bezel-hi: oklch(34% 0.004 100);
+  --bezel-lo: oklch(21% 0.004 100);
+
+  --key-wall: oklch(30% 0.004 95);
+
+  --face-hi: oklch(93% 0.005 95);
+  --face-lo: oklch(83% 0.007 93);
+  --face-wall: oklch(66% 0.009 90);
+  --face-on-hi: oklch(80% 0.008 92);
+  --face-on-lo: oklch(87% 0.006 94);
+  --face-ink: oklch(27% 0.006 95);
+
+  --well-hi: oklch(66% 0.008 92);
+  --well-lo: oklch(78% 0.008 94);
+  --well-fill: oklch(46% 0.008 95);
+
+  --desk-1: oklch(30% 0.006 110);
+  --desk-2: oklch(24% 0.012 60);
+  --desk-3: oklch(17% 0.004 110);
+
+  --ink: oklch(27% 0.006 95);
+  --ink-dim: oklch(43% 0.006 95);
+  --ink-faint: oklch(46% 0.006 95);
+
+  --led-off: oklch(58% 0.005 95);
+  --focus: oklch(53% 0.17 58);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: 1ms;
+    --dur-ui: 1ms;
+    --dur-view: 1ms;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+/* The desk the camera is lying on */
+body {
+  margin: 0;
+  padding: 22px;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+  color: var(--ink);
+  font: 400 14px/1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(120% 90% at 20% -20%, var(--desk-1), transparent 60%),
+    radial-gradient(90% 80% at 100% 120%, var(--desk-2), transparent 55%),
+    var(--desk-3);
+}
+
+/* Desk texture only — it must never sit on top of the photo being judged */
+.grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.05;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; }
+
+kbd {
+  font: 400 9px/1 var(--font-lcd);
+  background: var(--well-hi);
+  border-radius: 3px;
+  padding: 4px 5px;
+  color: var(--ink);
+}
+
+.hidden { display: none !important; }
+
+/* ---------- camera body ---------- */
+
+.cam-body {
+  position: relative;
+  z-index: 1;
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  border-radius: var(--r-body);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--body-hi) 0%, var(--body) 18%, var(--body-mid) 82%, var(--body-lo) 100%);
+  box-shadow:
+    0 1px 0 var(--edge-hi) inset,
+    0 -2px 0 oklch(0% 0 0 / 0.5) inset,
+    0 0 0 1px var(--hairline),
+    0 30px 70px -20px oklch(0% 0 0 / 0.7),
+    0 8px 20px oklch(0% 0 0 / 0.35);
+}
+
+/* Brushed-plastic grain running along the body */
+.cam-body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0.4;
+  background: repeating-linear-gradient(
+    90deg,
+    oklch(100% 0 0 / 0.05) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.screw {
+  position: absolute;
+  z-index: 7;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg, oklch(78% 0.004 240), oklch(58% 0.005 240));
+  box-shadow:
+    0 1px 0 var(--edge),
+    inset 0 1px 1px oklch(100% 0 0 / 0.5),
+    inset 0 -1px 1px oklch(20% 0 0 / 0.4);
+}
+.screw::after {
+  content: "";
+  position: absolute;
+  inset: 2px 1px;
+  border-top: 1px solid oklch(38% 0.005 240 / 0.85);
+  transform: rotate(28deg);
+}
+.screw-tl { top: 12px; left: 13px; }
+.screw-tr { top: 12px; right: 13px; }
+
+/* ---------- top plate ---------- */
+
+.topbar {
+  position: relative;
+  z-index: 8;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px 34px;
+  background:
+    linear-gradient(180deg, var(--body-hi) 0%, var(--body) 60%, var(--body-mid) 100%);
+  box-shadow:
+    0 1px 0 var(--edge-hi) inset,
+    0 1px 0 var(--seam),
+    0 3px 10px oklch(0% 0 0 / 0.3);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Wordmark is stamped into the plastic: dark ink, light lower edge */
+.brand h1 {
+  font-family: var(--font-print);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  color: var(--ink);
+  text-shadow: var(--emboss);
+}
+
+.brand-model {
+  font: 400 9px/1 var(--font-lcd);
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  transform: translateY(-2px);
+}
+
+/* Power / record lamp under a clear dome */
+.rec-dot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 28%, oklch(100% 0 0 / 0.85), transparent 42%),
+    radial-gradient(circle at 50% 60%, var(--led-green), oklch(42% 0.12 148) 78%);
+  box-shadow:
+    inset 0 -1px 2px oklch(20% 0.05 148 / 0.6),
+    0 0 6px color-mix(in oklch, var(--led-green) 55%, transparent),
+    0 0 0 1px var(--hairline);
+}
+body[data-mode="camera"] .rec-dot {
+  background:
+    radial-gradient(circle at 35% 28%, oklch(100% 0 0 / 0.85), transparent 42%),
+    radial-gradient(circle at 50% 60%, var(--led-red), oklch(38% 0.14 27) 78%);
+  box-shadow:
+    inset 0 -1px 2px oklch(20% 0.06 27 / 0.6),
+    0 0 8px color-mix(in oklch, var(--led-red) 60%, transparent),
+    0 0 0 1px var(--hairline);
+  animation: recPulse 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes recPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.42; }
+}
+
+/* Silkscreened line of body print */
+.tag {
+  font: 700 9px/1 var(--font-print);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: var(--emboss);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+/* ---------- keys ---------- */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 9px 15px;
+  font: 700 10.5px/1 var(--font-print);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: oklch(93% 0.003 95);
+  border: 0;
+  border-radius: var(--r-key);
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--key-hi) 0%, var(--key) 52%, var(--key-lo) 100%);
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.22) inset,
+    0 -1px 0 oklch(0% 0 0 / 0.45) inset,
+    0 2px 0 var(--key-wall),
+    0 4px 8px oklch(0% 0 0 / 0.3);
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out),
+    filter var(--dur-ui) var(--ease-out),
+    opacity var(--dur-ui) var(--ease-out);
+}
+.btn:hover:not(:disabled) { filter: brightness(1.12); }
+.btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    0 2px 5px oklch(0% 0 0 / 0.4) inset,
+    0 0 0 oklch(0% 0 0 / 0),
+    0 1px 2px oklch(0% 0 0 / 0.25);
+}
+.btn:disabled {
+  cursor: not-allowed;
+  color: oklch(84% 0.003 95 / 0.75);
+  background: linear-gradient(180deg, oklch(34% 0.004 100), oklch(27% 0.004 100));
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.08) inset,
+    0 1px 2px oklch(0% 0 0 / 0.2);
+}
+
+/* The write key is chrome, with a lamp that lights when there is data to write */
+.btn-primary {
+  color: var(--chrome-ink);
+  text-shadow: 0 1px 0 oklch(100% 0 0 / 0.55);
+  background: linear-gradient(180deg, var(--chrome-hi) 0%, var(--chrome) 48%, var(--chrome-lo) 100%);
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.85) inset,
+    0 -1px 0 oklch(30% 0.005 240 / 0.4) inset,
+    0 2px 0 var(--chrome-edge),
+    0 4px 8px oklch(0% 0 0 / 0.32);
+}
+.btn-primary:disabled {
+  color: oklch(42% 0.004 240 / 0.9);
+  text-shadow: none;
+  background: linear-gradient(180deg, oklch(76% 0.003 240), oklch(66% 0.004 240));
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.4) inset,
+    0 1px 2px oklch(0% 0 0 / 0.18);
+}
+
+/* The write lamp belongs to the key that writes a file, and nowhere else */
+.topbar-actions .btn-primary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--led-red);
+  box-shadow: 0 0 5px color-mix(in oklch, var(--led-red) 70%, transparent);
+  transition: background var(--dur-ui) var(--ease-out), box-shadow var(--dur-ui) var(--ease-out);
+}
+.topbar-actions .btn-primary:disabled::before {
+  background: var(--led-off);
+  box-shadow: none;
+}
+
+/* Card-write confirmation: the access lamp goes green for a beat */
+.btn.is-saved::before {
+  animation: lampWrite 900ms var(--ease-out);
+}
+@keyframes lampWrite {
+  0%, 70% {
+    background: var(--led-green);
+    box-shadow: 0 0 8px color-mix(in oklch, var(--led-green) 80%, transparent);
+  }
+  100% {
+    background: var(--led-red);
+    box-shadow: 0 0 5px color-mix(in oklch, var(--led-red) 70%, transparent);
+  }
+}
+
+.btn:focus-visible,
+.seg-btn:focus-visible,
+.shutter:focus-visible,
+.switch input:focus-visible,
+input:focus-visible,
+summary:focus-visible,
+.cam-select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---------- camera back ---------- */
+
+.layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 18px;
+  padding: 18px 20px;
+}
+
+.stage {
+  min-width: 0;
+  display: flex;
+  overflow: auto;
+}
+
+/* Thumb-grip texture on the control side of the back */
+.panel {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 0 0 24px;
+  border-radius: 10px;
+  background:
+    radial-gradient(var(--deck-dots) 0.7px, transparent 0.8px) 0 0 / 6px 6px,
+    linear-gradient(180deg, var(--deck-hi), var(--deck-lo));
+  box-shadow:
+    0 1px 0 var(--edge) inset,
+    0 0 0 1px var(--hairline),
+    0 2px 6px oklch(0% 0 0 / 0.25) inset;
+}
+
+/* ---------- LCD module ---------- */
+
+.lcd {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.lcd-bezel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: 13px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--bezel-hi), var(--bezel-lo));
+  box-shadow:
+    0 1px 0 var(--edge),
+    0 0 0 1px var(--hairline),
+    inset 0 2px 5px oklch(0% 0 0 / 0.55);
+}
+
+.lcd-screen {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 100%;
+  display: grid;
+  border-radius: var(--r-lcd);
+  overflow: hidden;
+  color: var(--text);
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--lcd-lift), transparent 60%),
+    var(--lcd-deep);
+  box-shadow:
+    0 0 0 1px oklch(0% 0 0 / 0.8),
+    inset 0 0 34px oklch(0% 0 0 / 0.6);
+}
+
+/* Transflective pixel matrix. It lives under the active view, so it textures the
+   screen without ever screening the photo the user is judging. */
+.lcd-screen::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.55;
+  background:
+    linear-gradient(180deg, oklch(100% 0 0 / 0.06), transparent 24%),
+    repeating-linear-gradient(90deg, oklch(0% 0 0 / 0.4) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, oklch(0% 0 0 / 0.35) 0 1px, transparent 1px 3px);
+}
+
+/* On-screen display: mode, quality, battery — always on, like the real thing */
+.lcd-osd {
+  position: absolute;
+  inset: 8px 10px auto;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+  font: 400 9px/1 var(--font-lcd);
+  letter-spacing: 0.04em;
+  color: oklch(92% 0.01 200 / 0.72);
+  text-shadow: 0 1px 0 oklch(0% 0 0 / 0.8);
+}
+
+.osd-mode { color: var(--led-green); }
+body[data-mode="empty"] .osd-mode::after { content: "STBY"; }
+body[data-mode="camera"] .osd-mode::after { content: "\25CF REC"; color: var(--led-red); }
+body[data-mode="editor"] .osd-mode::after { content: "\25B6 PLAY"; }
+
+.osd-spec { letter-spacing: 0.08em; }
+
+.osd-batt {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 22px;
+  height: 11px;
+  padding: 2px;
+  border: 1px solid oklch(92% 0.01 200 / 0.7);
+  border-radius: 2px;
+}
+.osd-batt::after {
+  content: "";
+  position: absolute;
+  width: 2px;
+  height: 5px;
+  margin-left: 22px;
+  border-radius: 0 1px 1px 0;
+  background: oklch(92% 0.01 200 / 0.7);
+}
+.osd-batt i {
+  flex: 1;
+  height: 100%;
+  background: oklch(92% 0.01 200 / 0.7);
+}
+.osd-batt i:last-child { background: oklch(92% 0.01 200 / 0.2); }
+
+/* Stacked screen views: crossfade, never scale from zero */
+.stage-view {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.985);
+  transition:
+    opacity var(--dur-view) var(--ease-out-soft),
+    transform var(--dur-view) var(--ease-out-soft),
+    visibility var(--dur-view);
+  z-index: 0;
+}
+.stage-view.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  z-index: 1;
+}
+
+body[data-mode="empty"] .lcd-screen {
+  animation: lcdWake 520ms var(--ease-out) both;
+}
+@keyframes lcdWake {
+  from { filter: brightness(0.3) saturate(0.6); }
+  to { filter: none; }
+}
+
+/* ---------- empty state ---------- */
+
+.dropzone {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--dur-ui) var(--ease-out);
+}
+.dropzone:hover,
+.dropzone.is-over { background: oklch(60% 0.06 200 / 0.1); }
+.dropzone.is-over .dropzone-inner { transform: scale(1.02); }
+
+.dropzone-inner {
+  text-align: center;
+  padding: 34px 26px;
+  max-width: 430px;
+  transition: transform var(--dur-ui) var(--ease-out);
+}
+
+
+.dz-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 20px;
+  font: 400 9px/1 var(--font-lcd);
+  letter-spacing: 0.06em;
+  color: var(--led-green);
+}
+.dz-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--led-green);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--led-green) 60%, transparent);
+}
+
+.dz-icon {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 16px;
+  color: oklch(88% 0.01 200 / 0.85);
+}
+.dz-icon svg { width: 100%; height: 100%; }
+
+.dz-title {
+  margin: 0 0 8px;
+  font-family: var(--font-print);
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.dz-sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.dz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 0 20px;
+}
+.dz-note {
+  margin: 0;
+  font: 400 9px/1.7 var(--font-lcd);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.for-mobile { display: none !important; }
+.for-desk { display: inline; }
+.label-short { display: none; }
+.label-full { display: inline; }
+
+@media (min-width: 901px) {
+  /* One primary key in the empty state on desktop */
+  #dzCameraBtn {
+    color: var(--chrome-ink);
+    text-shadow: 0 1px 0 oklch(100% 0 0 / 0.55);
+    background: linear-gradient(180deg, var(--chrome-hi) 0%, var(--chrome) 48%, var(--chrome-lo) 100%);
+    box-shadow:
+      0 1px 0 oklch(100% 0 0 / 0.85) inset,
+      0 2px 0 var(--chrome-edge),
+      0 4px 8px oklch(0% 0 0 / 0.32);
+  }
+
+}
+
+/* ---------- capture ---------- */
+
+.camera {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 26px 16px 16px;
+}
+
+.cam-wrap {
+  position: relative;
+  flex: 0 1 auto;
+  max-width: 100%;
+  line-height: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: oklch(10% 0.01 200);
+  box-shadow: 0 0 0 1px oklch(0% 0 0 / 0.6);
+}
+
+.cam-wrap canvas {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 360px);
+  width: auto;
+  height: auto;
+}
+
+.cam-brackets {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: 28%;
+  aspect-ratio: 4 / 3;
+  pointer-events: none;
+  opacity: 0.8;
+}
+.cam-brackets span {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid oklch(100% 0 0 / 0.85);
+}
+.cam-brackets span:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.cam-brackets span:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+.cam-brackets span:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+.cam-brackets span:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+.cam-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.cam-flash.is-firing { animation: camFlash 420ms var(--ease-out); }
+@keyframes camFlash {
+  0% { opacity: 0.92; }
+  100% { opacity: 0; }
+}
+
+.cam-bar {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.cam-side { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.cam-side-right { justify-content: flex-end; }
+
+/* No OS dropdown chrome inside the viewfinder: this is an OSD field */
+.cam-select {
+  appearance: none;
+  -webkit-appearance: none;
+  font: 400 9px/1.4 var(--font-lcd);
+  max-width: 100%;
+  min-height: 44px;
+  padding: 8px 26px 8px 10px;
+  color: var(--text-dim);
+  border: 1px solid oklch(46% 0.008 200);
+  border-radius: 3px;
+  cursor: pointer;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23b9c4c2' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M2 2.5 6 6 10 2.5'/%3E%3C/svg%3E")
+      no-repeat right 9px center / 10px 7px,
+    oklch(22% 0.01 200);
+}
+.cam-select option { color: initial; }
+
+/* Leaves the viewfinder without taking a photo */
+.cam-close {
+  min-height: 40px;
+  padding: 9px 13px;
+}
+
+/* The shutter release: chrome dome in a collar */
+.shutter {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 30%, oklch(78% 0.006 95), oklch(58% 0.007 92) 70%, oklch(46% 0.007 92));
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.5) inset,
+    0 3px 0 oklch(38% 0.006 92),
+    0 8px 18px oklch(0% 0 0 / 0.45);
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out);
+}
+.shutter:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow:
+    0 2px 6px oklch(0% 0 0 / 0.5) inset,
+    0 1px 3px oklch(0% 0 0 / 0.3);
+}
+.shutter:disabled { opacity: 0.45; cursor: not-allowed; }
+.shutter.is-firing { animation: shutterKick 260ms var(--ease-out); }
+@keyframes shutterKick {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(3px); }
+  100% { transform: translateY(0); }
+}
+
+.shutter-ring {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 42% 30%, var(--chrome-hi), var(--chrome) 55%, var(--chrome-lo) 100%);
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.9) inset,
+    0 -2px 4px oklch(30% 0.005 240 / 0.5) inset,
+    0 0 0 1px oklch(50% 0.006 240 / 0.6);
+  transition: filter var(--dur-ui) var(--ease-out);
+}
+.shutter:hover:not(:disabled) .shutter-ring { filter: brightness(1.06); }
+
+.cam-readout {
+  flex: 0 0 auto;
+  min-height: 16px;
+  font: 400 9px/1.6 var(--font-lcd);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* ---------- playback ---------- */
+
+.viewer {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 26px 16px 14px;
+}
+
+.canvas-wrap {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  line-height: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: oklch(10% 0.01 200);
+  box-shadow: 0 0 0 1px oklch(0% 0 0 / 0.6);
+  touch-action: none;
+}
+
+.canvas-wrap.is-developing { animation: developIn 480ms var(--ease-out-soft); }
+@keyframes developIn {
+  0% { opacity: 0.35; filter: brightness(1.35) saturate(0.7) contrast(1.1); }
+  55% { filter: brightness(1.08) saturate(0.95); }
+  100% { opacity: 1; filter: none; }
+}
+
+.canvas-wrap canvas {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 250px);
+  width: auto;
+  height: auto;
+}
+
+.original-layer {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none;
+  clip-path: inset(0 calc(100% - var(--split, 50%)) 0 0);
+}
+
+.compare-handle {
+  position: absolute;
+  inset: 0;
+  left: var(--split, 50%);
+  width: 0;
+  cursor: ew-resize;
+}
+.compare-line {
+  position: absolute;
+  top: 0; bottom: 0; left: -1px;
+  width: 2px;
+  background: oklch(96% 0.004 200 / 0.9);
+  box-shadow: 0 0 8px oklch(0% 0 0 / 0.6);
+}
+.compare-grip {
+  position: absolute;
+  top: 50%; left: 0;
+  transform: translate(-50%, -50%);
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--chrome-ink);
+  background: linear-gradient(180deg, var(--chrome-hi), var(--chrome) 55%, var(--chrome-lo));
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.8) inset,
+    0 2px 8px oklch(0% 0 0 / 0.5);
+  transition: transform 110ms var(--ease-out);
+}
+.compare-handle:active .compare-grip { transform: translate(-50%, -50%) scale(0.95); }
+.compare-grip svg { width: 16px; height: 16px; }
+
+.compare-tag {
+  position: absolute;
+  bottom: 9px;
+  font: 400 8px/1 var(--font-lcd);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 6px;
+  border-radius: 2px;
+  background: oklch(12% 0.01 200 / 0.8);
+  color: oklch(96% 0.004 200 / 0.9);
+  pointer-events: none;
+}
+.tag-before { left: 9px; }
+.tag-after { right: 9px; }
+
+.canvas-wrap.no-compare .original-layer,
+.canvas-wrap.no-compare .compare-handle,
+.canvas-wrap.no-compare .compare-tag { display: none; }
+
+.busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: oklch(12% 0.01 200 / 0.78);
+  font: 400 9px/1.5 var(--font-lcd);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+  z-index: 7;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-ui) var(--ease-out),
+    visibility var(--dur-ui);
+}
+.busy.is-on { opacity: 1; visibility: visible; }
+.busy:not(.is-on) { pointer-events: none; }
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid oklch(80% 0.01 200 / 0.25);
+  border-top-color: var(--led-amber);
+  border-radius: 50%;
+  animation: spin 0.55s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.stage-foot {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.meta {
+  font: 400 9px/1.7 var(--font-lcd);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.meta strong { color: var(--text-dim); font-weight: 400; }
+
+/* Switch labels inside the screen are OSD print, like everything else on it */
+.lcd-screen .switch span {
+  font: 700 9.5px/1 var(--font-print);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* ---------- control deck ---------- */
+
+.panel-block,
+.panel-fold {
+  padding: 15px 16px 17px;
+  border-bottom: 1px solid var(--divider);
+  box-shadow: 0 1px 0 var(--divider-hi);
+}
+.panel-block:last-child,
+.panel-fold:last-child { border-bottom: 0; box-shadow: none; }
+
+.panel-fold > summary { list-style: none; cursor: pointer; }
+.panel-fold > summary::-webkit-details-marker { display: none; }
+
+.panel-fold::details-content {
+  transition:
+    content-visibility var(--dur-view) allow-discrete,
+    height var(--dur-view) var(--ease-out-soft),
+    opacity var(--dur-view) var(--ease-out);
+  height: 0;
+  opacity: 0;
+  overflow: clip;
+}
+.panel-fold[open]::details-content { height: auto; opacity: 1; }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 13px;
+}
+.panel-fold > summary.panel-head { margin-bottom: 0; }
+.panel-fold[open] > summary.panel-head { margin-bottom: 13px; }
+.panel-fold > summary.panel-head::after {
+  content: "+";
+  font: 400 10px/1 var(--font-lcd);
+  color: var(--ink-dim);
+}
+.panel-fold[open] > summary.panel-head::after { content: "\2013"; }
+
+/* Section names are printed on the body, not typeset */
+.panel-head h2 {
+  font: 700 9.5px/1 var(--font-print);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  text-shadow: var(--emboss);
+}
+
+.hint {
+  margin: 11px 0 0;
+  font: 400 12px/1.5 var(--font-print);
+  letter-spacing: 0.01em;
+  color: var(--ink-dim);
+}
+
+/* ---------- adjustment sliders ---------- */
+
+.controls { display: flex; flex-direction: column; gap: 14px; }
+
+.ctrl-group {
+  margin: 10px 0 0;
+  font: 700 9px/1 var(--font-print);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-shadow: var(--emboss);
+}
+.ctrl-group::after {
+  content: "";
+  display: block;
+  margin-top: 9px;
+  border-top: 1px solid var(--divider);
+  box-shadow: 0 1px 0 var(--divider-hi);
+}
+
+.ctrl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+/* Body print voice: the condensed face the rest of the chassis is printed in */
+.ctrl-label {
+  font: 500 13px/1.2 var(--font-print);
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.ctrl.is-master .ctrl-label { font-weight: 700; }
+
+/* Values sit in a little inset LCD chip */
+.ctrl-value {
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding: 3px 5px;
+  text-align: right;
+  font: 400 9px/1.2 var(--font-lcd);
+  font-variant-numeric: tabular-nums;
+  color: oklch(90% 0.05 160);
+  background: oklch(24% 0.015 190);
+  border-radius: 2px;
+  box-shadow:
+    inset 0 1px 2px oklch(0% 0 0 / 0.6),
+    0 1px 0 var(--edge);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, var(--well-fill) 0 var(--v, 50%), transparent var(--v, 50%)),
+    linear-gradient(180deg, var(--well-hi), var(--well-lo));
+  box-shadow:
+    inset 0 1px 3px oklch(0% 0 0 / 0.45),
+    0 1px 0 var(--edge);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 20px;
+  margin-top: -6px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(0deg, oklch(0% 0 0 / 0.16) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, var(--chrome-hi), var(--chrome) 45%, var(--chrome-lo));
+  border: 1px solid var(--chrome-edge);
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.7) inset,
+    0 2px 4px oklch(0% 0 0 / 0.4);
+  transition: transform 110ms var(--ease-out);
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scaleY(0.94); }
+input[type="range"]::-moz-range-track {
+  height: 8px;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, var(--well-fill) 0 var(--v, 50%), transparent var(--v, 50%)),
+    linear-gradient(180deg, var(--well-hi), var(--well-lo));
+  box-shadow: inset 0 1px 3px oklch(0% 0 0 / 0.45);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid var(--chrome-edge);
+  background: linear-gradient(180deg, var(--chrome-hi), var(--chrome-lo));
+}
+
+/* ---------- slide switches ---------- */
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 22px;
+  margin: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--well-hi), var(--well-lo));
+  box-shadow:
+    inset 0 1px 3px oklch(0% 0 0 / 0.5),
+    0 1px 0 var(--edge);
+  transition: background var(--dur-ui) var(--ease-out);
+}
+/* The sliding nub */
+.switch input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 18px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(90deg, oklch(0% 0 0 / 0.06) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, var(--chrome-hi), var(--chrome) 50%, var(--chrome-lo));
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.8) inset,
+    0 1px 3px oklch(0% 0 0 / 0.45);
+  transition: transform var(--dur-ui) var(--ease-out);
+}
+.switch input:checked { background: linear-gradient(180deg, oklch(42% 0.09 150), oklch(56% 0.11 150)); }
+.switch input:checked::after { transform: translateX(19px); }
+
+.lcd-screen .switch input {
+  background: linear-gradient(180deg, oklch(26% 0.01 200), oklch(34% 0.01 200));
+  box-shadow: inset 0 1px 3px oklch(0% 0 0 / 0.6);
+}
+.lcd-screen .switch input:checked {
+  background: linear-gradient(180deg, oklch(38% 0.1 150), oklch(52% 0.12 150));
+}
+
+/* ---------- date field ---------- */
+
+.text-input {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 11px;
+  font: 400 11px/1.4 var(--font-lcd);
+  letter-spacing: 0.04em;
+  color: oklch(94% 0.02 160);
+  background: oklch(23% 0.014 190);
+  border: 0;
+  border-radius: 3px;
+  box-shadow:
+    inset 0 2px 4px oklch(0% 0 0 / 0.6),
+    0 1px 0 var(--edge);
+}
+.text-input::placeholder { color: oklch(62% 0.02 175); }
+.text-input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------- two-position selector ---------- */
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, var(--well-hi), var(--well-lo));
+  box-shadow:
+    inset 0 2px 4px oklch(0% 0 0 / 0.35),
+    0 1px 0 var(--edge);
+}
+.seg-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 8px 6px;
+  font: 700 9.5px/1 var(--font-print);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--face-ink);
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
+  box-shadow:
+    0 1px 0 var(--edge-hi) inset,
+    0 2px 0 var(--face-wall),
+    0 2px 4px oklch(0% 0 0 / 0.22);
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out);
+}
+.seg-btn::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--led-off);
+  box-shadow: inset 0 1px 1px oklch(0% 0 0 / 0.35);
+  transition: background var(--dur-ui) var(--ease-out), box-shadow var(--dur-ui) var(--ease-out);
+}
+.seg-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 4px oklch(0% 0 0 / 0.3) inset;
+}
+.seg-btn.is-active {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, var(--face-on-hi), var(--face-on-lo));
+  box-shadow:
+    0 2px 5px oklch(0% 0 0 / 0.38) inset,
+    0 0 0 1px var(--hairline);
+}
+.seg-btn.is-active::before {
+  background: var(--led-green);
+  box-shadow:
+    0 0 7px color-mix(in oklch, var(--led-green) 70%, transparent),
+    inset 0 1px 1px oklch(100% 0 0 / 0.5);
+}
+
+/* ---------- base plate ---------- */
+
+.cam-base {
+  position: relative;
+  z-index: 8;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 34px 10px;
+  font: 700 9px/1 var(--font-print);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-shadow: var(--emboss);
+  background: linear-gradient(180deg, var(--body-mid), var(--body-lo));
+  box-shadow:
+    0 -1px 0 var(--edge-soft) inset,
+    0 -1px 0 var(--seam);
+}
+.cam-base .socket {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, oklch(52% 0.006 95), oklch(34% 0.005 95));
+  box-shadow:
+    inset 0 2px 3px oklch(0% 0 0 / 0.6),
+    0 1px 0 var(--edge);
+}
+
+/* ---------- on-screen message ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translate(-50%, calc(100% + 20px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 88vw;
+  padding: 11px 16px;
+  border-radius: 3px;
+  border: 1px solid oklch(90% 0.01 200 / 0.55);
+  background: oklch(14% 0.012 200 / 0.94);
+  color: var(--text);
+  /* Messages are read, not scanned: OSD frame, but readable type inside it */
+  font: 400 12.5px/1.45 var(--font-ui);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-ui) var(--ease-out-soft),
+    transform var(--dur-ui) var(--ease-out-soft);
+  z-index: 90;
+}
+.toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+/* Lamp first, so the state is never carried by hue alone */
+.toast::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--led-green);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--led-green) 70%, transparent);
+}
+.toast.is-error {
+  border-color: var(--danger);
+  color: oklch(90% 0.06 45);
+}
+.toast.is-error::before {
+  background: var(--led-red);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--led-red) 75%, transparent);
+  animation: recPulse 1.4s var(--ease-in-out) infinite;
+}
+
+/* ---------- power-on screen ---------- */
+
+body.is-booting { overflow: hidden; }
+
+/* Standby is the same object, powered down: silver body, dark screen. */
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 32px 22px;
+  overflow: hidden;
+  color: var(--text);
+  background:
+    radial-gradient(120% 90% at 20% -20%, var(--desk-1), transparent 60%),
+    radial-gradient(90% 80% at 100% 120%, var(--desk-2), transparent 55%),
+    var(--desk-3);
+  animation: bootArrive 420ms var(--ease-out-soft) both;
+}
+
+.boot-inner {
+  position: relative;
+  z-index: 1;
+  width: min(480px, 100%);
+  padding: 20px 22px 26px;
+  text-align: center;
+  border-radius: var(--r-body);
+  background:
+    linear-gradient(180deg, var(--body-hi) 0%, var(--body) 22%, var(--body-mid) 80%, var(--body-lo) 100%);
+  box-shadow:
+    0 1px 0 var(--edge-hi) inset,
+    0 -2px 0 oklch(0% 0 0 / 0.5) inset,
+    0 0 0 1px var(--hairline),
+    0 30px 70px -20px oklch(0% 0 0 / 0.7);
+}
+
+/* Top plate: wordmark left, standby lamp right */
+.boot-plate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+/* The screen itself, dark and scanlined inside its bezel */
+.boot-screen {
+  position: relative;
+  overflow: hidden;
+  padding: 22px 18px 20px;
+  border-radius: 8px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--lcd-lift), transparent 62%),
+    var(--lcd-deep);
+  box-shadow:
+    0 1px 0 var(--edge),
+    0 0 0 1px oklch(0% 0 0 / 0.7),
+    inset 0 0 30px oklch(0% 0 0 / 0.6);
+}
+.boot-screen::after {
+  content: "";
+  display: block;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  background:
+    repeating-linear-gradient(90deg, oklch(0% 0 0 / 0.4) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, oklch(0% 0 0 / 0.35) 0 1px, transparent 1px 3px);
+}
+
+.boot-standby {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font: 400 9px/1 var(--font-lcd);
+  letter-spacing: 0.06em;
+  color: oklch(74% 0.13 72);
+}
+.boot-standby-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--led-amber);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--led-amber) 65%, transparent);
+  animation: recPulse 1.8s var(--ease-in-out) infinite;
+}
+
+/* Wordmark stamped into the plate, same as the running app's top plate */
+.boot-wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--font-print);
+  font-size: clamp(28px, 7vw, 38px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  text-shadow: var(--emboss);
+}
+
+.boot-model {
+  font: 400 9px/1 var(--font-lcd);
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+
+.boot-title {
+  margin: 0 0 12px;
+  font-size: clamp(18px, 4.2vw, 21px);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.boot-copy {
+  margin: 0 auto 18px;
+  max-width: 42ch;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.boot-spec {
+  margin: 0;
+  font: 400 9px/1.8 var(--font-lcd);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.boot-actions { margin: 22px 0 12px; }
+
+/* Round power key, chrome, with its lamp above the icon */
+.boot-power {
+  flex-direction: column;
+  gap: 6px;
+  width: 104px;
+  height: 104px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--chrome-ink);
+  background:
+    radial-gradient(circle at 44% 28%, var(--chrome-hi), var(--chrome) 52%, var(--chrome-lo) 100%);
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.9) inset,
+    0 -2px 5px oklch(30% 0.005 240 / 0.45) inset,
+    0 4px 0 var(--chrome-edge),
+    0 12px 26px oklch(0% 0 0 / 0.55);
+  font: 700 9px/1 var(--font-print);
+  letter-spacing: 0.22em;
+}
+.boot-power:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow:
+    0 3px 8px oklch(0% 0 0 / 0.5) inset,
+    0 2px 4px oklch(0% 0 0 / 0.3);
+}
+.boot-power svg {
+  width: 26px;
+  height: 26px;
+  stroke: var(--chrome-ink);
+}
+
+.boot-power-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--led-green);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--led-green) 70%, transparent);
+}
+
+.boot-hint {
+  margin: 0;
+  font: 400 9px/1.6 var(--font-lcd);
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
+}
+.boot-enter {
+  animation: bootStagger 460ms var(--ease-out-soft) both;
+  animation-delay: calc(160ms + var(--i, 0) * 55ms);
+}
+
+@keyframes bootArrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes bootStagger {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The authored moment: the shutter closes over the welcome screen. */
+.boot.is-leaving {
+  animation: bootIris 560ms var(--ease-in-out) both;
+  pointer-events: none;
+}
+
+/* 71% is the farthest viewport corner at any aspect ratio, so the iris starts
+   exactly at full coverage with no dead frames before the reveal. */
+@keyframes bootIris {
+  0% { clip-path: circle(71% at 50% 50%); filter: brightness(1); }
+  14% { filter: brightness(1.6) saturate(0.85); }
+  88% { opacity: 1; }
+  100% { clip-path: circle(0% at 50% 50%); filter: brightness(1); opacity: 0; }
+}
+
+.boot-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    oklch(96% 0.004 200 / 0.45) 50%,
+    transparent 65%
+  );
+}
+.boot.is-leaving .boot-sweep { animation: bootSweep 460ms var(--ease-out) both; }
+@keyframes bootSweep {
+  from { opacity: 0.9; transform: translateX(-60%); }
+  to { opacity: 0; transform: translateX(60%); }
+}
+
+body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms both; }
+@keyframes bootStage {
+  from { opacity: 0.35; transform: scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- held in one hand ---------- */
+
+@media (max-width: 900px) {
+  :root {
+    --dock-h: 68px;
+    --topbar-h: 52px;
+  }
+
+  html, body { height: auto; min-height: 100dvh; }
+
+  body {
+    padding: 0;
+    display: block;
+    overflow: auto;
+    overflow-x: hidden;
+    padding-bottom: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px));
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+  }
+
+  .for-mobile { display: inline !important; }
+  .for-desk { display: none !important; }
+  .label-short { display: inline; }
+  .label-full { display: none; }
+  .dz-actions .btn.for-mobile { display: inline-flex !important; }
+
+  .tag { display: none; }
+  .grain { opacity: 0.035; }
+
+  /* The phone is the camera: body fills the screen, no desk around it.
+     overflow must stay visible or it becomes the scrollport and the
+     sticky LCD stops following the control deck. */
+  .cam-body {
+    width: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .screw { display: none; }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    min-height: var(--topbar-h);
+    padding: 9px 14px;
+    padding-top: calc(9px + env(safe-area-inset-top, 0px));
+  }
+
+  .brand h1 { font-size: 18px; letter-spacing: 0.14em; }
+
+  /* Bottom key row, where the thumb already is */
+  .topbar-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1.2fr;
+    gap: 8px;
+    padding: 9px 12px calc(9px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(180deg, var(--body) 0%, var(--body-lo) 100%);
+    box-shadow:
+      0 1px 0 var(--edge) inset,
+      0 -1px 0 var(--seam),
+      0 -8px 20px oklch(0% 0 0 / 0.35);
+  }
+
+  .topbar-actions .btn {
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 4px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  body[data-mode="camera"] { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body[data-mode="camera"] .topbar-actions { display: none; }
+
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .stage {
+    position: sticky;
+    top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+    z-index: 5;
+    padding: 0;
+    min-height: 0;
+  }
+
+  .lcd-bezel { padding: 8px; border-radius: 6px; }
+
+  .dropzone-inner { padding: 26px 16px; }
+  .dz-title { font-size: 21px; }
+  .dz-actions .btn { min-height: 48px; padding: 13px 16px; font-size: 11px; }
+  .dz-actions .btn-primary { flex: 1 1 140px; }
+
+  .camera { padding: 22px 8px 10px; gap: 10px; }
+  .cam-wrap { width: 100%; }
+  .cam-wrap canvas {
+    width: 100%;
+    max-height: min(56dvh, calc(100dvh - 230px));
+    object-fit: contain;
+  }
+
+  .cam-bar {
+    position: sticky;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+    gap: 10px;
+    padding: 8px 4px 4px;
+    background: linear-gradient(180deg, transparent, oklch(12% 0.01 200 / 0.9) 34%);
+  }
+
+  .shutter { width: 78px; height: 78px; }
+  .shutter-ring { width: 54px; height: 54px; }
+
+  .cam-side { flex-direction: column; align-items: stretch; gap: 8px; }
+  .cam-side-right { align-items: stretch; }
+  .cam-select { font-size: 9px; width: 100%; min-height: 44px; }
+  .switch { min-height: 44px; padding: 4px 0; }
+
+  .viewer { padding: 22px 8px 8px; gap: 10px; }
+  .canvas-wrap { width: 100%; }
+  .canvas-wrap canvas { width: 100%; max-height: min(46dvh, 420px); }
+
+  .compare-grip { width: 42px; height: 42px; }
+  .compare-handle::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -22px;
+    width: 44px;
+  }
+
+  .stage-foot { gap: 10px; }
+
+  .panel { border-radius: 8px; }
+  .panel-block,
+  .panel-fold { padding: 14px 13px 15px; }
+
+
+  input[type="range"] { height: 30px; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 10px; }
+  input[type="range"]::-webkit-slider-thumb {
+    width: 20px;
+    height: 28px;
+    margin-top: -9px;
+  }
+  input[type="range"]::-moz-range-thumb { width: 18px; height: 26px; }
+
+  .seg-btn { min-height: 46px; }
+
+  .switch input { width: 48px; height: 26px; }
+  .switch input::after { width: 22px; height: 22px; }
+  .switch input:checked::after { transform: translateX(22px); }
+
+  .text-input {
+    min-height: 46px;
+    font-size: 16px; /* keeps iOS from zooming on focus */
+  }
+
+  /* Only the model print fits across a phone's base plate */
+  .cam-base {
+    justify-content: center;
+    gap: 12px;
+    padding: 11px 14px;
+    font-size: 8px;
+    letter-spacing: 0.18em;
+    white-space: nowrap;
+  }
+  .cam-base span:last-child { display: none; }
+
+  .boot { padding: 20px 14px calc(20px + env(safe-area-inset-bottom, 0px)); }
+  .boot-inner { padding: 16px 16px 22px; border-radius: 16px; }
+  .boot-screen { padding: 18px 14px 16px; }
+  .boot-copy { font-size: 13px; }
+
+  .toast { bottom: calc(var(--dock-h) + 14px + env(safe-area-inset-bottom, 0px)); }
+  body[data-mode="camera"] .toast { bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  .stage { position: relative; top: auto; }
+  .canvas-wrap canvas,
+  .cam-wrap canvas { max-height: min(70dvh, calc(100dvh - 170px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot,
+  body[data-mode="camera"] .rec-dot,
+  .spinner,
+  .cam-flash.is-firing,
+  .shutter.is-firing,
+  .canvas-wrap.is-developing,
+  .btn.is-saved::before,
+  .dz-enter,
+  .boot,
+  .boot-enter,
+  .boot-sweep,
+  .boot-standby-dot,
+  .boot.is-leaving,
+  .boot.is-leaving .boot-sweep,
+  body.is-booted .cam-body,
+  body[data-mode="empty"] .lcd-screen {
+    animation: none !important;
+  }
+  .stage-view {
+    transition: none !important;
+    transform: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

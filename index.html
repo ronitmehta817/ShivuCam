@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#2e2e2c" />
+<meta name="color-scheme" content="dark" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Shivucam — Digital Camera Filter</title>
+<link rel="preconnect" href="https://fonts.bunny.net" />
+<link href="https://fonts.bunny.net/css?family=archivo:400,500,600,700|archivo-narrow:600,700|silkscreen:400,700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-mode="empty" class="is-booting">
+<!--
+THESIS: the tool is the instrument. This is the back of a 2003 compact camera,
+not a photo editor with a retro skin, and it refuses the dark glass dashboard.
+OWN-WORLD: graphite polycarbonate with white silkscreen print, charcoal rubber
+keys, chrome selectors and knurled thumbs, one small transflective TFT with a
+green OSD, red record lamp, green ready lamps. The champagne-silver body this
+camera also shipped in lives on under [data-theme="silver"].
+STORY: the visitor powers the camera on, shoots or loads a frame, works the
+scene keys and adjustment sliders, and writes the file to disk.
+FIRST VIEWPORT: the whole body, top plate with wordmark and keys, LCD left,
+control deck right, base plate below. Primary action is the chrome WRITE key.
+FORM: brief-pinned world (2000s digital camera); no roll.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the
+finish review, the verdict, and DESIGN.md.
+-->
+
+<div class="grain" aria-hidden="true"></div>
+
+<section class="boot" id="boot" data-state="on" aria-label="Welcome">
+  <div class="boot-sweep" aria-hidden="true"></div>
+  <div class="boot-inner">
+    <div class="boot-plate">
+      <p class="boot-wordmark boot-enter" style="--i: 0">
+        SHIVUCAM<span class="boot-model">CCD-03</span>
+      </p>
+      <p class="boot-standby boot-enter" style="--i: 1">
+        <span class="boot-standby-dot" aria-hidden="true"></span>
+        <span>STANDBY</span>
+      </p>
+    </div>
+
+    <div class="boot-screen boot-enter" style="--i: 2">
+      <h2 class="boot-title">Made this for chhotu baby.</h2>
+
+      <p class="boot-copy">
+        You wanted a digital camera from the 2000s, couldn't find it anywhere
+        ergo i built this for my tingu pingu
+        🫣🫣🫣
+      </p>
+
+      <p class="boot-spec">
+        CCD 2.0MP · 4:3 · JPEG / PNG · ON DEVICE
+      </p>
+    </div>
+
+    <div class="boot-actions boot-enter" style="--i: 3">
+      <button id="powerBtn" class="btn boot-power" type="button" aria-label="Power on">
+        <span class="boot-power-dot" aria-hidden="true"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M12 3v9" />
+          <path d="M6.5 6.6a8 8 0 1 0 11 0" />
+        </svg>
+        <span>Power</span>
+      </button>
+    </div>
+
+    <p class="boot-hint boot-enter" style="--i: 4">
+      or press <kbd>Enter</kbd>
+    </p>
+  </div>
+</section>
+
+<div class="cam-body">
+
+<span class="screw screw-tl" aria-hidden="true"></span>
+<span class="screw screw-tr" aria-hidden="true"></span>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="rec-dot" aria-hidden="true"></span>
+    <div class="brand-lockup" role="button" tabindex="0" aria-label="Power off, back to the welcome screen">
+      <h1>SHIVUCAM</h1>
+      <span class="brand-model">CCD-03</span>
+    </div>
+    <span class="tag">early-2000s digital camera filter</span>
+  </div>
+  <div class="topbar-actions">
+    <button id="pickBtn" class="btn btn-ghost" type="button">
+      <span class="label-full">Open image</span><span class="label-short">Open</span>
+    </button>
+    <button id="cameraBtn" class="btn btn-ghost" type="button">
+      <span class="label-full">Use camera</span><span class="label-short">Camera</span>
+    </button>
+    <button id="resetBtn" class="btn btn-ghost" type="button" disabled>
+      <span class="label-full">Reset</span><span class="label-short">Reset</span>
+    </button>
+    <button id="downloadBtn" class="btn btn-primary" type="button" disabled>
+      <span class="label-full">Download</span><span class="label-short">Save</span>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <section class="stage" id="stage">
+    <div class="lcd" id="lcd">
+      <div class="lcd-bezel">
+        <div class="lcd-screen">
+
+          <div class="lcd-osd" aria-hidden="true">
+            <span class="osd-mode"></span>
+            <span class="osd-spec">2.0M FINE</span>
+            <span class="osd-batt"><i></i><i></i><i></i></span>
+          </div>
+
+          <div class="stage-view dropzone is-active" id="dropzone">
+            <div class="dropzone-inner">
+              <div class="dz-status dz-enter" style="--i: 0" aria-hidden="true">
+                <span class="dz-status-dot"></span>
+                <span>LCD READY</span>
+              </div>
+              <div class="dz-icon dz-enter" style="--i: 1" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                     stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.7a2 2 0 0 0 1.66-.89l.62-.93A2 2 0 0 1 11.14 3h1.72a2 2 0 0 1 1.66.89l.62.93A2 2 0 0 0 16.8 6h1.7A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-8Z"/>
+                  <circle cx="12" cy="12.5" r="3.6"/>
+                </svg>
+              </div>
+              <p class="dz-title dz-enter" style="--i: 2">
+                <span class="for-mobile">Tap to choose a photo</span>
+                <span class="for-desk">Drop a photo here</span>
+              </p>
+              <p class="dz-sub dz-enter" style="--i: 3">
+                <span class="for-mobile">Browse your library, or shoot with the camera</span>
+                <span class="for-desk">or click to browse · paste with <kbd>⌘V</kbd></span>
+              </p>
+              <div class="dz-actions dz-enter" style="--i: 4">
+                <button id="dzPickBtn" class="btn btn-primary for-mobile" type="button">Choose photo</button>
+                <button id="dzCameraBtn" class="btn btn-ghost" type="button">
+                  <span class="for-mobile">Camera</span>
+                  <span class="for-desk">Shoot with camera</span>
+                </button>
+              </div>
+              <p class="dz-note dz-enter" style="--i: 5">JPG · PNG · WEBP · stays on this device</p>
+            </div>
+          </div>
+
+          <div class="stage-view camera" id="cameraView">
+            <div class="cam-wrap" id="camWrap">
+              <canvas id="camCanvas"></canvas>
+              <div class="cam-brackets" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <div class="cam-flash" id="camFlash" aria-hidden="true"></div>
+              <div class="busy" id="camBusy">
+                <span class="spinner"></span><span id="camBusyText">Starting camera…</span>
+              </div>
+            </div>
+
+            <div class="cam-bar">
+              <div class="cam-side">
+                <button id="camCloseBtn" class="btn cam-close" type="button">Close</button>
+                <select id="camDevice" class="cam-select" aria-label="Camera"></select>
+              </div>
+
+              <button id="shutterBtn" class="shutter" type="button" aria-label="Take photo">
+                <span class="shutter-ring"></span>
+              </button>
+
+              <div class="cam-side cam-side-right">
+                <label class="switch">
+                  <input type="checkbox" id="camMirror" />
+                  <span>Mirror</span>
+                </label>
+                <label class="switch">
+                  <input type="checkbox" id="camFiltered" checked />
+                  <span>Filtered</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="cam-readout" id="camReadout"></div>
+          </div>
+
+          <div class="stage-view viewer" id="viewer">
+            <div class="canvas-wrap" id="canvasWrap">
+              <canvas id="previewCanvas"></canvas>
+              <canvas id="originalCanvas" class="original-layer"></canvas>
+              <div class="compare-handle" id="compareHandle">
+                <div class="compare-line"></div>
+                <div class="compare-grip" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 6 4 12l5 6M15 6l5 6-5 6"/>
+                  </svg>
+                </div>
+              </div>
+              <span class="compare-tag tag-before">before</span>
+              <span class="compare-tag tag-after">after</span>
+            </div>
+
+            <div class="stage-foot">
+              <div class="meta" id="meta"></div>
+              <label class="switch">
+                <input type="checkbox" id="compareToggle" checked />
+                <span>Compare slider</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Sits on the screen itself, so it shows whatever the camera is doing -->
+          <div class="busy" id="busy">
+            <span class="spinner"></span><span id="busyText">Working…</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <details class="panel-fold" id="foldAdjustments" open>
+      <summary class="panel-head">
+        <h2>Adjustments</h2>
+      </summary>
+      <div class="controls" id="controls"></div>
+    </details>
+
+    <details class="panel-fold" id="foldDate" open>
+      <summary class="panel-head">
+        <h2>Date stamp</h2>
+      </summary>
+      <label class="switch">
+        <input type="checkbox" id="dateStampToggle" />
+        <span>Burn in date</span>
+      </label>
+      <input type="text" id="dateText" class="text-input" maxlength="32" placeholder="2024/04/07 11:08:21" autocomplete="off" enterkeyhint="done" spellcheck="false" />
+      <p class="hint">White OSD stamp, bottom left — YYYY/MM/DD HH:MM:SS, like a real Shivucam LCD.</p>
+    </details>
+
+    <details class="panel-fold" id="foldExport" open>
+      <summary class="panel-head">
+        <h2>Export</h2>
+      </summary>
+      <div class="seg" id="formatSeg" role="group" aria-label="Export format">
+        <button type="button" class="seg-btn is-active" data-format="png" aria-pressed="true">PNG · lossless</button>
+        <button type="button" class="seg-btn" data-format="jpeg" aria-pressed="false">JPEG · 100%</button>
+      </div>
+      <p class="hint" id="exportHint">
+        Full original resolution, no resampling. PNG re-encodes pixel-for-pixel with zero
+        generation loss.
+      </p>
+    </details>
+  </aside>
+</main>
+
+<div class="cam-base">
+  <span>Shivucam CCD-03</span>
+  <span class="socket" aria-hidden="true"></span>
+  <span>CCD 2.0MP · JPEG / PNG · processed on this device</span>
+</div>
+
+</div>
+
+<input type="file" id="fileInput" accept="image/*" hidden />
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
