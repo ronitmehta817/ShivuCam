@@ -1,5 +1,5 @@
 /* =============================================================================
- * SHIVUCAM CCD-03 — the interface is the back of a 2003 compact camera.
+ * BILLUCAM CCD-03 — the interface is the back of a 2003 compact camera.
  * Graphite polycarbonate body, charcoal rubber keys, chrome selectors, one
  * small transflective TFT. Every control is a part you could press.
  *
@@ -464,6 +464,7 @@ body[data-mode="camera"] .rec-dot {
 
 .btn:focus-visible,
 .seg-btn:focus-visible,
+.paper:focus-visible,
 .shutter:focus-visible,
 .switch input:focus-visible,
 input:focus-visible,
@@ -578,6 +579,9 @@ summary:focus-visible,
 body[data-mode="empty"] .osd-mode::after { content: "STBY"; }
 body[data-mode="camera"] .osd-mode::after { content: "\25CF REC"; color: var(--led-red); }
 body[data-mode="editor"] .osd-mode::after { content: "\25B6 PLAY"; }
+body[data-mode="editor"][data-output="sheet"] .osd-mode::after { content: "\25B6 4-CUT"; }
+/* The tally reads as a countdown, so the standing REC lamp would double up */
+body[data-booth="on"] .osd-mode::after { content: "\25CF BOOTH"; }
 
 .osd-spec { letter-spacing: 0.08em; }
 
@@ -613,6 +617,10 @@ body[data-mode="editor"] .osd-mode::after { content: "\25B6 PLAY"; }
   grid-area: 1 / 1;
   min-width: 0;
   min-height: 0;
+  /* Out of flow while hidden, or the dropzone and the viewfinder would keep
+     holding the screen open to their own height behind the photo. */
+  position: absolute;
+  inset: 0;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -624,6 +632,7 @@ body[data-mode="editor"] .osd-mode::after { content: "\25B6 PLAY"; }
   z-index: 0;
 }
 .stage-view.is-active {
+  position: relative;
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -770,6 +779,7 @@ body[data-mode="empty"] .lcd-screen {
   aspect-ratio: 4 / 3;
   pointer-events: none;
   opacity: 0.8;
+  transition: opacity var(--dur-ui) var(--ease-out);
 }
 .cam-brackets span {
   position: absolute;
@@ -890,6 +900,176 @@ body[data-mode="empty"] .lcd-screen {
   text-align: center;
 }
 
+/* ---------- the booth ---------- */
+
+/* A shooting mode, so it sits with the other mode keys and leaves the shutter
+   alone in the middle of the bar */
+.booth-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 8px 11px;
+  font: 700 9px/1 var(--font-print);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--face-ink);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--face-hi), var(--face-lo));
+  box-shadow:
+    0 1px 0 var(--edge-hi) inset,
+    0 2px 0 var(--face-wall),
+    0 2px 5px oklch(0% 0 0 / 0.3);
+  transition:
+    transform var(--dur-press) var(--ease-out),
+    box-shadow var(--dur-press) var(--ease-out);
+}
+.booth-key:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 2px 4px oklch(0% 0 0 / 0.3) inset;
+}
+.booth-key:disabled { opacity: 0.5; cursor: not-allowed; }
+.booth-key:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Held down for the length of the run, so the key stays visibly engaged */
+.booth-key[aria-pressed="true"] {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, var(--face-on-hi), var(--face-on-lo));
+  box-shadow:
+    0 2px 5px oklch(0% 0 0 / 0.38) inset,
+    0 0 0 1px var(--hairline);
+}
+
+/* Four cells two by two: the glyph is the print it makes */
+.booth-key-film {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+.booth-key-film i {
+  width: 7px;
+  height: 5px;
+  border-radius: 1px;
+  background: var(--led-off);
+  transition: background var(--dur-ui) var(--ease-out);
+}
+.booth-key[aria-pressed="true"] .booth-key-film i {
+  background: var(--led-red);
+  box-shadow: 0 0 5px color-mix(in oklch, var(--led-red) 65%, transparent);
+}
+
+/* Countdown, over the live frame */
+.booth-osd {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(closest-side, oklch(0% 0 0 / 0.5), transparent 70%);
+  transition: opacity var(--dur-ui) var(--ease-out);
+}
+body[data-booth="on"] .booth-osd { opacity: 1; }
+/* The countdown owns the middle of the frame while it runs */
+body[data-booth="on"] .cam-brackets { opacity: 0; }
+
+.booth-count {
+  font: 400 clamp(76px, 22vw, 128px)/1 var(--font-lcd);
+  color: var(--lcd-ink);
+  text-shadow:
+    0 0 20px color-mix(in oklch, var(--led-green) 45%, transparent),
+    0 2px 5px oklch(0% 0 0 / 0.75);
+}
+/* Restarted from script on every second, so each number lands on its own */
+.booth-osd.is-counting .booth-count { animation: countPop var(--dur-view) var(--ease-out); }
+@keyframes countPop {
+  from { transform: scale(1.16); opacity: 0.25; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* The last few seconds. Twenty is long enough to stop watching the number, so
+   it has to come back and say so. */
+.booth-osd.is-urgent .booth-count {
+  color: color-mix(in oklch, var(--led-red) 82%, white);
+  text-shadow:
+    0 0 26px color-mix(in oklch, var(--led-red) 60%, transparent),
+    0 2px 5px oklch(0% 0 0 / 0.8);
+}
+
+.booth-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 9px/1 var(--font-lcd);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--led-green);
+  text-shadow: 0 1px 2px oklch(0% 0 0 / 0.85);
+}
+
+/* Recording the clip. Nothing may sit over the middle of the frame here — this
+   is the part where somebody is looking at themselves and holding a pose. */
+.booth-osd.is-recording {
+  place-content: end center;
+  padding-bottom: 12px;
+  background: none;
+}
+.booth-osd.is-recording .booth-step {
+  color: color-mix(in oklch, var(--led-red) 45%, white);
+}
+.booth-osd.is-recording .booth-step::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--led-red);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--led-red) 75%, transparent);
+  animation: recBlink 1s var(--ease-in-out) infinite;
+}
+@keyframes recBlink { 50% { opacity: 0.25; } }
+
+/* Frame counter: which cuts are in the can */
+.booth-slots {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 5px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-ui) var(--ease-out);
+}
+body[data-booth="on"] .booth-slots { opacity: 1; }
+.booth-slots i {
+  width: 15px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid oklch(100% 0 0 / 0.45);
+  background: oklch(0% 0 0 / 0.35);
+  transition:
+    background var(--dur-ui) var(--ease-out),
+    border-color var(--dur-ui) var(--ease-out);
+}
+.booth-slots i.is-filled {
+  background: var(--led-green);
+  border-color: color-mix(in oklch, var(--led-green) 60%, white);
+  box-shadow: 0 0 6px color-mix(in oklch, var(--led-green) 55%, transparent);
+}
+.booth-slots i.is-next {
+  border-color: var(--led-red);
+  animation: slotWait 1s var(--ease-in-out) infinite;
+}
+@keyframes slotWait {
+  50% { background: color-mix(in oklch, var(--led-red) 40%, transparent); }
+}
+
 /* ---------- playback ---------- */
 
 .viewer {
@@ -912,7 +1092,9 @@ body[data-mode="empty"] .lcd-screen {
   border-radius: 3px;
   background: oklch(10% 0.01 200);
   box-shadow: 0 0 0 1px oklch(0% 0 0 / 0.6);
-  touch-action: none;
+  /* A vertical swipe on the photo scrolls the page; only sideways drags belong
+     to the compare split. */
+  touch-action: pan-y;
 }
 
 .canvas-wrap.is-developing { animation: developIn 480ms var(--ease-out-soft); }
@@ -925,7 +1107,9 @@ body[data-mode="empty"] .lcd-screen {
 .canvas-wrap canvas {
   display: block;
   max-width: 100%;
-  max-height: calc(100vh - 250px);
+  /* Everything above and below the photo — topbar, bezel, readout — measures a
+     fixed 275px, and the frame clips whatever the photo asks for beyond that. */
+  max-height: calc(100vh - 276px);
   width: auto;
   height: auto;
 }
@@ -939,12 +1123,18 @@ body[data-mode="empty"] .lcd-screen {
   clip-path: inset(0 calc(100% - var(--split, 50%)) 0 0);
 }
 
+/* A 2 x 2 sheet is close enough to a photo's shape to live by the photo sizing
+   rules; it only needs the frame to hug it, or the compare layer stretches. */
+body[data-output="sheet"] .canvas-wrap { width: auto; }
+
 .compare-handle {
   position: absolute;
   inset: 0;
   left: var(--split, 50%);
   width: 0;
   cursor: ew-resize;
+  /* Grabbing the divider is never a scroll */
+  touch-action: none;
 }
 .compare-line {
   position: absolute;
@@ -986,9 +1176,16 @@ body[data-mode="empty"] .lcd-screen {
 .tag-before { left: 9px; }
 .tag-after { right: 9px; }
 
+/* The foot of a sheet is printed on, so the labels move up out of the footer */
+body[data-output="sheet"] .compare-tag { bottom: auto; top: 9px; }
+
 .canvas-wrap.no-compare .original-layer,
 .canvas-wrap.no-compare .compare-handle,
-.canvas-wrap.no-compare .compare-tag { display: none; }
+.canvas-wrap.no-compare .compare-tag,
+/* A divider across a moving image is two ideas at once and neither reads */
+.canvas-wrap.is-playing .original-layer,
+.canvas-wrap.is-playing .compare-handle,
+.canvas-wrap.is-playing .compare-tag { display: none; }
 
 .busy {
   position: absolute;
@@ -1031,6 +1228,20 @@ body[data-mode="empty"] .lcd-screen {
   flex-wrap: wrap;
 }
 
+.foot-switches {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* Both of these are about a sheet that came out of the booth. The switch needs
+   the extra weight to outrank .switch itself, which is set later. */
+.stage-foot .switch-motion,
+#gifBtn { display: none; }
+body[data-motion="on"] .switch-motion { display: flex; }
+body[data-motion="on"] #gifBtn { display: inline-flex; }
+
 .meta {
   font: 400 9px/1.7 var(--font-lcd);
   letter-spacing: 0.04em;
@@ -1070,6 +1281,16 @@ body[data-mode="empty"] .lcd-screen {
   overflow: clip;
 }
 .panel-fold[open]::details-content { height: auto; opacity: 1; }
+
+/* Held for the length of a booth run: the sliders stay readable, and visibly
+   out of reach, rather than jumping out of the deck and back. */
+.panel-fold[inert] {
+  opacity: 0.42;
+  transition: opacity var(--dur-ui) var(--ease-out);
+}
+
+/* A print out of the booth has a fixed look, so it is offered no sliders at all */
+body[data-origin="booth"] #foldAdjustments { display: none; }
 
 .panel-head {
   display: flex;
@@ -1282,7 +1503,8 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---------- two-position selector ---------- */
 
-.seg {
+.seg,
+.papers {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 5px;
@@ -1293,7 +1515,24 @@ input[type="range"]::-moz-range-thumb {
     inset 0 2px 4px oklch(0% 0 0 / 0.35),
     0 1px 0 var(--edge);
 }
-.seg-btn {
+
+/* Five stocks, so the last one takes the full width rather than half of it */
+.papers { grid-template-columns: repeat(2, 1fr); }
+.paper:last-child { grid-column: 1 / -1; }
+
+/* A swatch of the stock itself, in place of the selector's lamp */
+.paper-chip {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--stock);
+  box-shadow:
+    inset 0 0 0 1px oklch(0% 0 0 / 0.35),
+    0 1px 1px oklch(0% 0 0 / 0.4);
+}
+
+.seg-btn,
+.paper {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1325,11 +1564,13 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: inset 0 1px 1px oklch(0% 0 0 / 0.35);
   transition: background var(--dur-ui) var(--ease-out), box-shadow var(--dur-ui) var(--ease-out);
 }
-.seg-btn:active {
+.seg-btn:active,
+.paper:active {
   transform: translateY(2px);
   box-shadow: 0 2px 4px oklch(0% 0 0 / 0.3) inset;
 }
-.seg-btn.is-active {
+.seg-btn.is-active,
+.paper.is-active {
   transform: translateY(1px);
   background: linear-gradient(180deg, var(--face-on-hi), var(--face-on-lo));
   box-shadow:
@@ -1724,12 +1965,23 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
       0 -8px 20px oklch(0% 0 0 / 0.35);
   }
 
+  /* Two outputs means two save keys. GIF is three letters, so it can have the
+     narrow column and leave the others their labels. */
+  body[data-motion="on"] .topbar-actions {
+    grid-template-columns: 1fr 1fr 1fr 1.15fr 0.72fr;
+    gap: 6px;
+  }
+
   .topbar-actions .btn {
     width: 100%;
     min-height: 46px;
     padding: 10px 4px;
     font-size: 10px;
     letter-spacing: 0.1em;
+  }
+  body[data-motion="on"] .topbar-actions .btn {
+    padding: 10px 2px;
+    letter-spacing: 0.06em;
   }
 
   body[data-mode="camera"] { padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -1750,6 +2002,13 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   }
 
   .lcd-bezel { padding: 8px; border-radius: 6px; }
+
+  /* The screen is half the display and stays half the display, whatever it is
+     showing: a 2 x 2 sheet, a portrait photo, the empty state. A box that
+     resized itself around its contents moved the whole deck under it every time
+     the contents changed. The viewfinder is the exception — a camera gets every
+     pixel it can. */
+  body:not([data-mode="camera"]) .lcd-bezel { height: 50dvh; }
 
   .dropzone-inner { padding: 26px 16px; }
   .dz-title { font-size: 21px; }
@@ -1781,9 +2040,29 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   .cam-select { font-size: 9px; width: 100%; min-height: 44px; }
   .switch { min-height: 44px; padding: 4px 0; }
 
-  .viewer { padding: 22px 8px 8px; gap: 10px; }
-  .canvas-wrap { width: 100%; }
-  .canvas-wrap canvas { width: 100%; max-height: min(46dvh, 420px); }
+  /* Top padding clears the OSD strip. A sheet is tall enough to fill the screen
+     top to bottom, and without the reserve it prints over the mode and the
+     battery. */
+  .viewer { padding: 23px 8px 6px; gap: 8px; }
+
+  /* The frame hugs the photo. The compare layer stretches to fill the frame, so
+     a frame that is not the shape of the image distorts the before side — and a
+     canvas given a definite width cannot keep its own ratio either. */
+  .canvas-wrap { width: auto; max-width: 100%; }
+  .canvas-wrap canvas {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    /* Whatever the screen is not already spending: 16px of bezel, 29px of
+       padding above and below the image, the 8px gap, and the 69px foot of
+       readout and switches. The screen clips, so a photo that ignored this
+       would lose its own caption. */
+    max-height: calc(50dvh - 122px);
+  }
+
+  /* Capped content cannot overflow, and an inner scroller here would compete
+     with the page for the same vertical swipe. */
+  .stage { overflow: visible; }
 
   .compare-grip { width: 42px; height: 42px; }
   .compare-handle::before {
@@ -1795,7 +2074,29 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
     width: 44px;
   }
 
-  .stage-foot { gap: 10px; }
+  /* The box below is a fixed height, and the image is given whatever the foot
+     does not take — so the foot is not allowed to surprise it. One line of
+     readout, one row of switches, both clipped rather than wrapped: 15 + 10 +
+     44 = the 69px the image sizing assumes, on a 320px phone as much as on a
+     430px one. */
+  .stage-foot {
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+  .stage-foot .meta {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .foot-switches { flex-wrap: nowrap; gap: 12px; min-width: 0; }
+  .foot-switches .switch { min-width: 0; }
+  .foot-switches .switch span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .panel { border-radius: 8px; }
   .panel-block,
@@ -1811,7 +2112,8 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   }
   input[type="range"]::-moz-range-thumb { width: 18px; height: 26px; }
 
-  .seg-btn { min-height: 46px; }
+  .seg-btn,
+  .paper { min-height: 46px; }
 
   .switch input { width: 48px; height: 26px; }
   .switch input::after { width: 22px; height: 22px; }
@@ -1842,8 +2144,12 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   body[data-mode="camera"] .toast { bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
 }
 
+/* Landscape phones scroll the screen away instead of pinning it. Half of a
+   landscape display is a letterbox, and nothing is pinned to pay for, so the
+   screen goes back to sizing around the photo. */
 @media (max-width: 900px) and (orientation: landscape) {
   .stage { position: relative; top: auto; }
+  body:not([data-mode="camera"]) .lcd-bezel { height: auto; }
   .canvas-wrap canvas,
   .cam-wrap canvas { max-height: min(70dvh, calc(100dvh - 170px)); }
 }
@@ -1864,7 +2170,10 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   .boot.is-leaving,
   .boot.is-leaving .boot-sweep,
   body.is-booted .cam-body,
-  body[data-mode="empty"] .lcd-screen {
+  body[data-mode="empty"] .lcd-screen,
+  .booth-osd.is-counting .booth-count,
+  .booth-osd.is-recording .booth-step::before,
+  .booth-slots i.is-next {
     animation: none !important;
   }
   .stage-view {

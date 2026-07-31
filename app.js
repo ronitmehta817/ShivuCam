@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================================
- * Shivucam - the look of an early-2000s point-and-shoot, applied in the browser.
+ * Billucam - the look of an early-2000s point-and-shoot, applied in the browser.
  *
  * The pipeline follows the chain a real 2-3 MP CCD camera put an image through,
  * because the order is what makes the result read as authentic rather than as a
@@ -80,12 +80,67 @@ const SCENE = {
 };
 
 /* ---------------------------------------------------------------------------
+ * The sheet
+ *
+ * Four cuts printed two by two, the Korean photobooth format. The sheet is
+ * drawn at 1154 x 962 for a 540px cut and every measurement scales from there,
+ * so one geometry serves both the on-screen preview and the print export.
+ * ------------------------------------------------------------------------- */
+
+const SHEET_CUTS = 4;
+const SHEET_COLS = 2;           // four cuts, two across
+const SHEET_CUT_FULL = 1200;    // cut width on export
+const SHEET_CUT_PREVIEW = 460;  // cut width on screen
+const SHEET_CUT_DRAFT = 230;    // cut width while a slider is moving
+
+/**
+ * Booth shots are cut down to this on the long edge the moment they are taken.
+ * A cut prints at 1200px whatever it was shot at, so a 12MP frame held for a
+ * 1200px crop is 40MB of nothing — and four of them at once, on a phone, mid
+ * run, is how a tab gets killed. A single shot keeps every pixel.
+ */
+const BOOTH_SHOT_MAX = 1600;
+
+const BOOTH_COUNT = 20;   // seconds between cuts, to move and change the pose
+const BOOTH_URGENT = 3;   // when the numeral turns red and starts insisting
+
+/* ---------------------------------------------------------------------------
+ * The moving sheet
+ *
+ * The booth's second output. Every cut also records a few seconds from the
+ * shutter onwards, and the four clips play at once on the same paper: the print
+ * you are holding, alive. Small numbers on purpose — this is a GIF, and a GIF
+ * pays for every pixel four times over.
+ * ------------------------------------------------------------------------- */
+
+const MOTION_FPS = 10;
+const MOTION_SECONDS = 3;
+const MOTION_FRAMES = MOTION_FPS * MOTION_SECONDS;
+const MOTION_STEP = 1000 / MOTION_FPS;
+const MOTION_CUT_W = 300;  // cut width inside the moving sheet
+
+/** Paper stock. Ink is what the camera prints the footer in. */
+const PAPERS = {
+  white: { paper: '#f7f5f0', ink: '#26262a', sub: '#73737a' },
+  black: { paper: '#141416', ink: '#f2f0ea', sub: '#8f8f96' },
+  cream: { paper: '#f0e4cd', ink: '#463c30', sub: '#87795f' },
+  pink: { paper: '#f7dbe3', ink: '#54323d', sub: '#9a6a78' },
+  mint: { paper: '#d9ebe1', ink: '#2c483b', sub: '#5f8577' },
+};
+
+/* ---------------------------------------------------------------------------
  * State
  * ------------------------------------------------------------------------- */
 
 const state = {
   mode: 'empty',  // 'empty' | 'camera' | 'editor'
   params: { ...SCENE },
+  // { cuts: [{ full, preview, draft }], cutW: { full, preview } }
+  sheet: null,
+  // { cuts: [[canvas x MOTION_FRAMES] x 4] } - the same sheet, moving
+  motion: null,
+  playing: false,
+  paper: 'white',  // stock the cuts print on, kept across sheets
   dateStamp: false,
   dateText: '',
   format: 'png',
@@ -122,8 +177,12 @@ const ui = {
   cameraBtn: el('cameraBtn'),
   dzPickBtn: el('dzPickBtn'),
   dzCameraBtn: el('dzCameraBtn'),
+  dzBoothBtn: el('dzBoothBtn'),
+  foldAdjustments: el('foldAdjustments'),
   resetBtn: el('resetBtn'),
   downloadBtn: el('downloadBtn'),
+  gifBtn: el('gifBtn'),
+  playToggle: el('playToggle'),
   dropzone: el('dropzone'),
   viewer: el('viewer'),
   cameraView: el('cameraView'),
@@ -135,7 +194,15 @@ const ui = {
   camMirror: el('camMirror'),
   camFiltered: el('camFiltered'),
   camReadout: el('camReadout'),
+  osdSpec: el('osdSpec'),
   shutterBtn: el('shutterBtn'),
+  boothBtn: el('boothBtn'),
+  boothOsd: el('boothOsd'),
+  boothCount: el('boothCount'),
+  boothStep: el('boothStep'),
+  boothSlots: el('boothSlots'),
+  foldPrint: el('foldPrint'),
+  papers: el('papers'),
   canvasWrap: el('canvasWrap'),
   preview: el('previewCanvas'),
   original: el('originalCanvas'),
@@ -287,7 +354,7 @@ function flashFalloff(d, w, h, amount) {
 /**
  * Throws away real detail by resampling down and back up, then leaves the frame
  * at its original dimensions. This is the single biggest reason a modern photo
- * does not pass as a Shivucam shot: no amount of grading fakes the absence of
+ * does not pass as a digicam shot: no amount of grading fakes the absence of
  * detail, because a 2 MP sensor never recorded it in the first place.
  */
 function limitResolution(ctx, canvas, w, h, ratio) {
@@ -792,7 +859,7 @@ function mulberry32(seed) {
  * Retro OSD date stamp — matches cheap early-2000s digicams / the reference
  * frame: bottom-left, white monospace, thin black outline, YYYY/MM/DD HH:MM:SS.
  *
- * Kept small. A large crisp stamp is the usual tell of a fake Shivucam look.
+ * Kept small. A large crisp stamp is the usual tell of a fake digicam look.
  */
 function drawDateStamp(ctx, w, h, text) {
   const short = Math.min(w, h);
@@ -910,6 +977,37 @@ function renderTo(layer, p, target) {
   return out;
 }
 
+const hasImage = () => Boolean(state.sheet || state.preview);
+
+/**
+ * What the current source renders to, at a given quality. A single photo is one
+ * pass of the chain; a sheet is one pass per cut, then the paper.
+ */
+function renderOutput(quality) {
+  if (state.sheet) {
+    const key = quality === 'full' ? 'full' : quality === 'draft' ? 'draft' : 'preview';
+    const cuts = state.sheet.cuts.map((cut) => renderTo(cut[key], state.params));
+    // Drafts keep the paper and footer sharp and let only the photos soften.
+    const cutW = quality === 'full' ? state.sheet.cutW.full : state.sheet.cutW.preview;
+    return composeSheet(cuts, state.paper, cutW);
+  }
+  const layer = quality === 'full' ? state.full
+    : quality === 'draft' ? state.draft
+    : state.preview;
+  return renderTo(layer, state.params);
+}
+
+/** Size of that render, for canvas sizing and the readout. */
+function outputSize(quality) {
+  if (state.sheet) {
+    const cutW = quality === 'full' ? state.sheet.cutW.full : state.sheet.cutW.preview;
+    const g = sheetGeometry(cutW);
+    return { w: g.w, h: g.h };
+  }
+  const layer = quality === 'full' ? state.full : state.preview;
+  return { w: layer.w, h: layer.h };
+}
+
 /**
  * Schedules a repaint of the preview canvas. A `draft` pass trades resolution
  * for latency while a control is being dragged; the `preview` pass runs once the
@@ -918,7 +1016,7 @@ function renderTo(layer, p, target) {
  */
 function requestPreview(quality = 'preview') {
   // The viewfinder repaints itself every frame, so it needs nothing from here.
-  if (state.mode !== 'editor' || !state.preview) return;
+  if (state.mode !== 'editor' || !hasImage()) return;
 
   if (state.rendering) {
     if (quality === 'preview' || state.queued !== 'preview') state.queued = quality;
@@ -928,9 +1026,8 @@ function requestPreview(quality = 'preview') {
   state.rendering = true;
   requestAnimationFrame(() => {
     try {
-      const layer = quality === 'draft' ? state.draft : state.preview;
-      const out = renderTo(layer, state.params);
-      const { w, h } = state.preview;
+      const out = renderOutput(quality);
+      const { w, h } = outputSize('preview');
       if (ui.preview.width !== w) ui.preview.width = w;
       if (ui.preview.height !== h) ui.preview.height = h;
       previewCtx.clearRect(0, 0, w, h);
@@ -951,6 +1048,23 @@ function requestPreview(quality = 'preview') {
  * Loading an image
  * ========================================================================= */
 
+/**
+ * One image opens as a photo; four open as a sheet. Anything in between is a
+ * near miss worth naming, so the user knows why they got a single frame.
+ */
+async function loadFiles(files) {
+  const images = [...files].filter((f) => f.type.startsWith('image/'));
+  if (images.length === 0) {
+    showToast('That file is not an image.', true);
+    return;
+  }
+  if (images.length >= SHEET_CUTS) return loadSheet(images.slice(0, SHEET_CUTS));
+  if (images.length > 1) {
+    showToast(`A sheet needs four photos, and you picked ${images.length}. Opening the first.`);
+  }
+  return loadFile(images[0]);
+}
+
 async function loadFile(file) {
   if (!file) return;
   if (!file.type.startsWith('image/')) {
@@ -959,12 +1073,16 @@ async function loadFile(file) {
   }
 
   stopCamera();
-  setMode(state.full ? 'editor' : 'empty');
+  setMode(hasImage() ? 'editor' : 'empty');
   setBusy(true, 'Loading image\u2026');
   try {
     const bitmap = await decode(file);
     const w = bitmap.width;
     const h = bitmap.height;
+
+    state.sheet = null;
+    syncSheetUi();
+    clearMotion();
 
     state.full = makeLayer(w, h);
     state.full.ctx.drawImage(bitmap, 0, 0, w, h);
@@ -991,6 +1109,26 @@ async function loadFile(file) {
     requestPreview();
   } catch (err) {
     showToast('Could not read that image.', true);
+    console.error(err);
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** Four files, in the order they were given, onto one sheet. */
+async function loadSheet(files) {
+  stopCamera();
+  setMode(hasImage() ? 'editor' : 'empty');
+  setBusy(true, 'Printing four cuts\u2026');
+  try {
+    const bitmaps = [];
+    for (const file of files) bitmaps.push(await decode(file));
+    const sources = bitmaps.map((b) => ({ source: b, w: b.width, h: b.height }));
+    openSheet(sources, `4cut-${stampSlug()}`);
+    for (const b of bitmaps) if (b.close) b.close();
+    showToast('Four cuts, two by two. Pick the paper under Print.');
+  } catch (err) {
+    showToast('Could not read those images.', true);
     console.error(err);
   } finally {
     setBusy(false);
@@ -1039,6 +1177,168 @@ function scaledLayer(source, w, h, maxDim) {
 }
 
 /* ===========================================================================
+ * The sheet
+ * ========================================================================= */
+
+/** Every measurement on the sheet, derived from one cut width. */
+function sheetGeometry(cutW) {
+  const u = cutW / 540;
+  const margin = Math.round(30 * u);
+  const gap = Math.round(14 * u);
+  const footer = Math.round(108 * u);
+  const cutH = Math.round((cutW * 3) / 4);
+  const cols = SHEET_COLS;
+  const rows = Math.ceil(SHEET_CUTS / cols);
+  return {
+    u, cutW, cutH, margin, gap, footer, cols, rows,
+    w: margin * 2 + cutW * cols + gap * (cols - 1),
+    h: margin + cutH * rows + gap * (rows - 1) + footer,
+  };
+}
+
+/**
+ * Lays finished cuts onto paper.
+ *
+ * The cuts arrive already through the camera chain and the paper never goes
+ * through it at all: a print has clean borders, so noise and vignetting have to
+ * stop at the edge of each photo. That is the whole reason the sheet is composed
+ * after the pipeline instead of being fed to it as one image.
+ */
+function composeSheet(cuts, paperName, cutW, target) {
+  const g = sheetGeometry(cutW);
+  const skin = PAPERS[paperName] || PAPERS.white;
+  const out = target || document.createElement('canvas');
+  if (out.width !== g.w) out.width = g.w;
+  if (out.height !== g.h) out.height = g.h;
+  const ctx = out.getContext('2d');
+
+  ctx.fillStyle = skin.paper;
+  ctx.fillRect(0, 0, g.w, g.h);
+
+  // Reading order: cuts one and two across the top, three and four below.
+  cuts.forEach((cut, i) => {
+    if (!cut) return;
+    const x = g.margin + (i % g.cols) * (g.cutW + g.gap);
+    const y = g.margin + Math.floor(i / g.cols) * (g.cutH + g.gap);
+    ctx.drawImage(cut, x, y, g.cutW, g.cutH);
+  });
+
+  const footTop = g.margin + g.rows * g.cutH + (g.rows - 1) * g.gap;
+  const cx = g.w / 2;
+  const spaced = 'letterSpacing' in ctx;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  if (spaced) ctx.letterSpacing = `${Math.max(1, Math.round(6 * g.u))}px`;
+  ctx.fillStyle = skin.ink;
+  // Type is set against the cut, not the sheet, so a caption on the wider sheet
+  // stays the size a caption should be rather than growing with the paper.
+  ctx.font = `700 ${Math.round(31 * g.u)}px "Archivo Narrow", "Arial Narrow", sans-serif`;
+  ctx.fillText('BILLUCAM CCD-03', cx, footTop + g.footer * 0.46);
+
+  if (spaced) ctx.letterSpacing = `${Math.max(1, Math.round(3 * g.u))}px`;
+  ctx.fillStyle = skin.sub;
+  ctx.font = `400 ${Math.round(20 * g.u)}px "Silkscreen", ui-monospace, monospace`;
+  ctx.fillText(sheetDate(), cx, footTop + g.footer * 0.8);
+  if (spaced) ctx.letterSpacing = '0px';
+
+  return out;
+}
+
+/** Booths print the date in dots. A typed stamp wins, since the user meant it. */
+function sheetDate() {
+  const custom = state.dateText.trim();
+  if (custom) return custom;
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
+}
+
+/** One cut, cropped to 4:3 from the middle of whatever it was given. */
+function cutLayer(source, sw, sh, cutW) {
+  const layer = makeLayer(cutW, Math.round((cutW * 3) / 4));
+  const scale = Math.max(layer.w / sw, layer.h / sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  layer.ctx.imageSmoothingQuality = 'high';
+  layer.ctx.drawImage(source, (layer.w - dw) / 2, (layer.h - dh) / 2, dw, dh);
+  return layer;
+}
+
+/**
+ * Turns four sources into a loaded sheet. Each cut is cropped up front at three
+ * resolutions, so the sheet is uniform by construction and no render has to
+ * work out where a photo goes.
+ */
+function openSheet(sources, name, { fromBooth = false } = {}) {
+  const usable = sources.reduce(
+    (min, s) => Math.min(min, s.w, Math.round((s.h * 4) / 3)),
+    Infinity,
+  );
+  const full = Math.max(120, Math.min(SHEET_CUT_FULL, usable));
+  const preview = Math.min(full, SHEET_CUT_PREVIEW);
+  const draft = Math.min(full, SHEET_CUT_DRAFT);
+
+  // Whatever was moving belonged to the sheet that just went away.
+  clearMotion();
+
+  const cuts = sources.map((s) => ({
+    full: cutLayer(s.source, s.w, s.h, full),
+    preview: cutLayer(s.source, s.w, s.h, preview),
+    draft: cutLayer(s.source, s.w, s.h, draft),
+  }));
+
+  state.sheet = { cuts, cutW: { full, preview }, fromBooth };
+  state.full = null;
+  state.preview = null;
+  state.draft = null;
+  state.sourceName = name;
+  state.sourceBytes = 0;
+
+  syncSheetUi();
+  const { w, h } = outputSize('preview');
+  ui.preview.width = w;
+  ui.preview.height = h;
+  ui.original.width = w;
+  ui.original.height = h;
+  drawSheetOriginal();
+
+  setMode('editor');
+  setSplit(50);
+  updateMeta();
+  pulseDevelop();
+  requestPreview();
+}
+
+/** The compare layer: the same sheet, printed from untouched photos. */
+function drawSheetOriginal() {
+  if (!state.sheet) return;
+  const sheet = composeSheet(
+    state.sheet.cuts.map((c) => c.preview.canvas),
+    state.paper,
+    state.sheet.cutW.preview,
+  );
+  originalCtx.clearRect(0, 0, ui.original.width, ui.original.height);
+  originalCtx.drawImage(sheet, 0, 0);
+}
+
+function syncSheetUi() {
+  const on = Boolean(state.sheet);
+  document.body.dataset.output = on ? 'sheet' : 'photo';
+  // A print out of the booth is finished work. Its look is fixed, so the deck
+  // drops the sliders rather than offering edits the print is not asking for.
+  if (on && state.sheet.fromBooth) document.body.dataset.origin = 'booth';
+  else delete document.body.dataset.origin;
+  if (ui.foldPrint) ui.foldPrint.hidden = !on;
+  if (!on) return;
+  for (const btn of ui.papers.children) {
+    const active = btn.dataset.paper === state.paper;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+}
+
+/* ===========================================================================
  * Camera
  * ========================================================================= */
 
@@ -1051,16 +1351,24 @@ async function startCamera(deviceId) {
   setMode('camera');
   setCamBusy(true, 'Starting camera\u2026');
   ui.shutterBtn.disabled = true;
+  ui.boothBtn.disabled = true;
+  endBooth();
   stopStream();
 
-  // 4:3 at around 2 MP is what these cameras actually shot; browsers treat this
-  // as a hint and hand back whatever the hardware can do.
+  // Everything the sensor has. A number no camera can meet is the standard way
+  // to ask for the largest mode available, since browsers read these as hints
+  // and return the closest thing they can.
+  //
+  // 4:3 stays as a preference rather than a requirement: it is the shape these
+  // cameras shot, and where a sensor offers it the browser picks a 4:3 mode. On
+  // a 16:9-only camera the frame comes back 16:9 at full size instead of being
+  // cropped down to fit an aesthetic.
   const video = deviceId
     ? { deviceId: { exact: deviceId } }
     : { facingMode: 'environment' };
   Object.assign(video, {
-    width: { ideal: 1600 },
-    height: { ideal: 1200 },
+    width: { ideal: 8192 },
+    height: { ideal: 8192 },
     aspectRatio: { ideal: 4 / 3 },
   });
 
@@ -1069,7 +1377,7 @@ async function startCamera(deviceId) {
   } catch (err) {
     setCamBusy(false);
     showToast(cameraError(err), true);
-    setMode(state.full ? 'editor' : 'empty');
+    setMode(hasImage() ? 'editor' : 'empty');
     return;
   }
 
@@ -1115,6 +1423,7 @@ async function startCamera(deviceId) {
 
   setCamBusy(false);
   ui.shutterBtn.disabled = false;
+  ui.boothBtn.disabled = false;
   camera.lastFrameAt = 0;
   camera.fps = 0;
   updateCamReadout();
@@ -1154,22 +1463,14 @@ function cameraLoop() {
   }
 }
 
-/** Grabs the current frame at the sensor's full resolution and opens it. */
-function capture() {
+/** The current frame at the sensor's full resolution, or null if there isn't one. */
+function grabFrame() {
   const video = camera.video;
-  if (!video || video.readyState < 2) return;
+  if (!video || video.readyState < 2) return null;
 
   const w = video.videoWidth;
   const h = video.videoHeight;
-  if (!w || !h) return;
-
-  ui.camFlash.classList.remove('is-firing');
-  // Reading offsetWidth restarts the animation.
-  void ui.camFlash.offsetWidth;
-  ui.camFlash.classList.add('is-firing');
-  ui.shutterBtn.classList.remove('is-firing');
-  void ui.shutterBtn.offsetWidth;
-  ui.shutterBtn.classList.add('is-firing');
+  if (!w || !h) return null;
 
   const shot = makeLayer(w, h);
   shot.ctx.save();
@@ -1179,9 +1480,31 @@ function capture() {
   }
   shot.ctx.drawImage(video, 0, 0, w, h);
   shot.ctx.restore();
+  return shot;
+}
 
+function fireFlash() {
+  ui.camFlash.classList.remove('is-firing');
+  // Reading offsetWidth restarts the animation.
+  void ui.camFlash.offsetWidth;
+  ui.camFlash.classList.add('is-firing');
+  ui.shutterBtn.classList.remove('is-firing');
+  void ui.shutterBtn.offsetWidth;
+  ui.shutterBtn.classList.add('is-firing');
+}
+
+/** Grabs the current frame and opens it as a single photo. */
+function capture() {
+  const shot = grabFrame();
+  if (!shot) return;
+  const { w, h } = shot;
+
+  fireFlash();
   stopCamera();
 
+  state.sheet = null;
+  syncSheetUi();
+  clearMotion();
   state.full = shot;
   state.preview = scaledLayer(shot.canvas, w, h, PREVIEW_MAX_DIM);
   state.draft = scaledLayer(shot.canvas, w, h, DRAFT_MAX_DIM);
@@ -1202,7 +1525,298 @@ function capture() {
   requestPreview();
 }
 
+/* --- the booth ----------------------------------------------------------- */
+
+/**
+ * Four shots on a timer, the way a booth does it: countdown, flash, hold the
+ * pose while it records, move on. One press runs the whole sheet.
+ *
+ * The twenty seconds between cuts are the point of a booth rather than dead
+ * time — it is how long it takes four people to think of the next pose.
+ */
+const booth = { active: false, shots: [], clips: [] };
+
+/**
+ * Opens the camera straight into a run. This is the whole booth from one press,
+ * for the key on the empty screen.
+ */
+async function openBooth() {
+  if (booth.active) return;
+  if (!camera.stream) await startCamera(camera.deviceId);
+  // No stream means the camera was refused or is missing; startCamera said why.
+  if (!camera.stream) return;
+  startBooth();
+}
+
+/**
+ * Settles the look before the first countdown, then runs. A booth print is not
+ * an editing session: the scene goes back to standard and the viewfinder filter
+ * is forced on, so four cuts taken seconds apart cannot come out looking like
+ * four different cameras, and the same press gives the same print every time.
+ */
+function startBooth() {
+  if (booth.active) return;
+  applyScene();
+  camera.filtered = true;
+  ui.camFiltered.checked = true;
+  runBooth();
+}
+
+async function runBooth() {
+  if (booth.active || !camera.stream) return;
+  booth.active = true;
+  booth.shots = [];
+  booth.clips = [];
+  document.body.dataset.booth = 'on';
+  ui.boothBtn.setAttribute('aria-pressed', 'true');
+  ui.boothBtn.setAttribute('aria-label', 'Stop the booth run');
+  ui.shutterBtn.disabled = true;
+  // Sliders stay put for the length of the run: cut one and cut four have to be
+  // the same photograph twice, not two settings.
+  ui.foldAdjustments.inert = true;
+  // The countdown itself is decorative; the readout is what gets announced, and
+  // during a run it only changes as a cut lands.
+  ui.camReadout.setAttribute('aria-live', 'polite');
+  showBoothSlots();
+
+  try {
+    for (let cut = 1; cut <= SHEET_CUTS && booth.active; cut++) {
+      for (let n = BOOTH_COUNT; n > 0 && booth.active; n--) {
+        showBoothOsd(String(n), `cut ${cut} of ${SHEET_CUTS}`, n <= BOOTH_URGENT);
+        await wait(1000);
+      }
+      if (!booth.active) break;
+
+      const shot = grabFrame();
+      if (!shot) throw new Error('no frame to grab');
+      booth.shots.push(scaledLayer(shot.canvas, shot.w, shot.h, BOOTH_SHOT_MAX));
+      fireFlash();
+      showBoothSlots();
+
+      // The still is the first frame of the clip, so the moving sheet starts on
+      // the photograph that gets printed and carries on from there.
+      showBoothOsd('', 'hold it');
+      booth.clips.push(await recordClip());
+    }
+
+    if (booth.active && booth.shots.length === SHEET_CUTS) {
+      const shots = booth.shots;
+      const clips = booth.clips;
+      endBooth();
+      stopCamera();
+      openSheet(
+        shots.map((s) => ({ source: s.canvas, w: s.w, h: s.h })),
+        `4cut-${stampSlug()}`,
+        { fromBooth: true },
+      );
+      await developMotion(clips);
+      showToast('Four cuts, two by two. The moving version is under GIF.');
+      return;
+    }
+  } catch (err) {
+    showToast('The booth run stopped early.', true);
+    console.error(err);
+  }
+  endBooth();
+}
+
+/** Leaves the viewfinder running; only the sequence stops. */
+function cancelBooth() {
+  if (!booth.active) return;
+  endBooth();
+  showToast('Booth run cancelled.');
+}
+
+function endBooth() {
+  booth.active = false;
+  booth.shots = [];
+  booth.clips = [];
+  delete document.body.dataset.booth;
+  ui.boothBtn.setAttribute('aria-pressed', 'false');
+  ui.boothBtn.setAttribute('aria-label', 'Shoot a four cut sheet');
+  ui.camReadout.removeAttribute('aria-live');
+  ui.shutterBtn.disabled = !camera.stream;
+  ui.foldAdjustments.inert = false;
+  showBoothOsd('', '');
+  showBoothSlots();
+}
+
+function showBoothOsd(count, step, urgent = false) {
+  ui.boothCount.textContent = count;
+  ui.boothStep.textContent = step;
+  ui.boothOsd.classList.toggle('is-urgent', Boolean(count) && urgent);
+  ui.boothOsd.classList.toggle('is-recording', !count && Boolean(step));
+  // Restarting the class is what makes each number land on its own.
+  ui.boothOsd.classList.remove('is-counting');
+  if (count) {
+    void ui.boothOsd.offsetWidth;
+    ui.boothOsd.classList.add('is-counting');
+  }
+}
+
+/* --- the moving sheet ---------------------------------------------------- */
+
+/**
+ * Records straight off the viewfinder for a few seconds after the shutter,
+ * already cropped to the cut and already small. Frames are timed against the
+ * clock rather than counted, so a slow phone drops one instead of stretching
+ * the clip into slow motion.
+ */
+async function recordClip() {
+  const frames = [];
+  const started = performance.now();
+
+  for (let i = 0; i < MOTION_FRAMES; i++) {
+    const due = started + i * MOTION_STEP;
+    const late = performance.now() - due;
+    if (late < 0) await wait(-late);
+    if (!booth.active) break;
+
+    const video = camera.video;
+    if (!video || video.readyState < 2 || !video.videoWidth) continue;
+    frames.push(mirroredCut(video, video.videoWidth, video.videoHeight, MOTION_CUT_W));
+  }
+
+  // A clip has to be the full length or the four will not play in step.
+  while (frames.length && frames.length < MOTION_FRAMES) {
+    frames.push(frames[frames.length - 1]);
+  }
+  return frames;
+}
+
+/** One cut of the moving sheet: 4:3 from the middle, flipped if the lens was. */
+function mirroredCut(source, sw, sh, cutW) {
+  const layer = makeLayer(cutW, Math.round((cutW * 3) / 4));
+  const scale = Math.max(layer.w / sw, layer.h / sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  layer.ctx.save();
+  if (camera.mirror) {
+    layer.ctx.translate(layer.w, 0);
+    layer.ctx.scale(-1, 1);
+  }
+  layer.ctx.imageSmoothingQuality = 'high';
+  layer.ctx.drawImage(source, (layer.w - dw) / 2, (layer.h - dh) / 2, dw, dh);
+  layer.ctx.restore();
+  return layer;
+}
+
+/**
+ * Runs the clips through the camera chain once and keeps the result. A hundred
+ * and twenty small frames take a second or two, which is worth paying here,
+ * where the sheet has just appeared and nobody is waiting on a control, rather
+ * than at the moment somebody presses save.
+ *
+ * The look cannot drift underneath them: a booth sheet has no sliders.
+ */
+async function developMotion(clips) {
+  clearMotion();
+  if (clips.length !== SHEET_CUTS || clips.some((c) => c.length !== MOTION_FRAMES)) return;
+
+  setBusy(true, 'Developing the moving sheet\u2026');
+  await nextFrame();
+
+  try {
+    const cuts = [];
+    for (let c = 0; c < clips.length; c++) {
+      const frames = [];
+      for (let i = 0; i < MOTION_FRAMES; i++) {
+        frames.push(renderTo(clips[c][i], state.params));
+        // Let the raw frame go as soon as it has been developed: holding both
+        // copies of two minutes of booth is a hundred and twenty canvases too
+        // many for a phone.
+        clips[c][i] = null;
+        // Every few frames, let the screen catch up with the count. A timer
+        // rather than a frame callback: this also has to finish if the phone is
+        // face down or the tab is in the background, where frames stop coming.
+        if (i % 8 === 7) {
+          const done = (c * MOTION_FRAMES + i + 1) / (SHEET_CUTS * MOTION_FRAMES);
+          setBusy(true, `Developing the moving sheet\u2026 ${Math.round(done * 100)}%`);
+          await wait(0);
+        }
+      }
+      cuts.push(frames);
+    }
+    state.motion = { cuts };
+  } catch (err) {
+    showToast('The moving sheet could not be developed.', true);
+    console.error(err);
+  } finally {
+    setBusy(false);
+    syncMotionUi();
+  }
+}
+
+function clearMotion() {
+  stopPlayback();
+  state.motion = null;
+  syncMotionUi();
+}
+
+function syncMotionUi() {
+  const on = Boolean(state.motion);
+  if (on) document.body.dataset.motion = 'on';
+  else delete document.body.dataset.motion;
+  ui.gifBtn.disabled = !on;
+  ui.playToggle.checked = state.playing;
+}
+
+/** Composes one frame of the moving sheet onto the current paper. */
+function motionFrame(i, target) {
+  return composeSheet(
+    state.motion.cuts.map((frames) => frames[i]),
+    state.paper,
+    MOTION_CUT_W,
+    target,
+  );
+}
+
+/**
+ * Plays the sheet on the LCD. The compare layer steps aside while it runs —
+ * a divider across a moving image is two ideas at once, and neither reads.
+ */
+let playTimer = 0;
+
+function startPlayback() {
+  if (!state.motion || state.playing) return;
+  state.playing = true;
+  ui.canvasWrap.classList.add('is-playing');
+  ui.playToggle.checked = true;
+
+  let i = 0;
+  const tick = () => {
+    if (!state.playing || !state.motion) return;
+    const frame = motionFrame(i % MOTION_FRAMES);
+    previewCtx.clearRect(0, 0, ui.preview.width, ui.preview.height);
+    previewCtx.drawImage(frame, 0, 0, ui.preview.width, ui.preview.height);
+    i++;
+    playTimer = setTimeout(tick, MOTION_STEP);
+  };
+  tick();
+}
+
+function stopPlayback() {
+  clearTimeout(playTimer);
+  playTimer = 0;
+  if (!state.playing) return;
+  state.playing = false;
+  ui.canvasWrap.classList.remove('is-playing');
+  ui.playToggle.checked = false;
+  requestPreview();
+}
+
+function showBoothSlots() {
+  const filled = booth.active ? booth.shots.length : 0;
+  [...ui.boothSlots.children].forEach((slot, i) => {
+    slot.classList.toggle('is-filled', i < filled);
+    slot.classList.toggle('is-next', booth.active && i === filled);
+  });
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function stopCamera() {
+  endBooth();
   cancelAnimationFrame(camera.frame);
   camera.frame = 0;
   stopStream();
@@ -1244,9 +1858,15 @@ async function populateCameraDevices() {
 
 function updateCamReadout() {
   if (state.mode !== 'camera') return;
+  updateOsdSpec();
   const video = camera.video;
   if (!video?.videoWidth) { ui.camReadout.textContent = ''; return; }
-  const mp = ((video.videoWidth * video.videoHeight) / 1e6).toFixed(1);
+  if (booth.active) {
+    ui.camReadout.textContent =
+      `booth \u00b7 ${booth.shots.length} of ${SHEET_CUTS} cuts \u00b7 esc to stop`;
+    return;
+  }
+  const mp = formatMp(video.videoWidth * video.videoHeight);
   const fps = camera.fps ? ` \u00b7 viewfinder ${Math.round(camera.fps)} fps` : '';
   ui.camReadout.textContent =
     `capture ${video.videoWidth}\u00d7${video.videoHeight} \u00b7 ${mp} MP${fps}`;
@@ -1297,8 +1917,8 @@ const stampSlug = () => {
  * ========================================================================= */
 
 async function download() {
-  if (!state.full) return;
-  const { w, h } = state.full;
+  if (!hasImage()) return;
+  const { w, h } = outputSize('full');
 
   const heavy = w * h > 10e6 ? ', this may take a while' : '';
   ui.downloadBtn.disabled = true;
@@ -1306,7 +1926,7 @@ async function download() {
   await nextFrame();
 
   try {
-    const out = renderTo(state.full, state.params);
+    const out = renderOutput('full');
     const isPng = state.format === 'png';
     const blob = await toBlob(out, isPng ? 'image/png' : 'image/jpeg', isPng ? undefined : 1);
     if (!blob) throw new Error('encode failed');
@@ -1314,7 +1934,7 @@ async function download() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${state.sourceName}-shivucam.${isPng ? 'png' : 'jpg'}`;
+    a.download = `${state.sourceName}-billucam.${isPng ? 'png' : 'jpg'}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1337,6 +1957,65 @@ async function download() {
   } finally {
     setBusy(false);
     ui.downloadBtn.disabled = false;
+  }
+}
+
+/**
+ * The second output. Same sheet, same paper, same date — the cuts move.
+ *
+ * Composition happens here rather than at develop time so the GIF follows the
+ * paper you picked afterwards, and it costs a millisecond a frame.
+ */
+async function downloadGif() {
+  if (!state.motion) return;
+
+  const wasPlaying = state.playing;
+  stopPlayback();
+
+  const scratch = document.createElement('canvas');
+  const sample = motionFrame(0, scratch);
+  const w = sample.width;
+  const h = sample.height;
+  const ctx = scratch.getContext('2d', { willReadFrequently: true });
+
+  ui.gifBtn.disabled = true;
+  setBusy(true, `Writing the GIF \u00b7 ${w}\u00d7${h}\u2026`);
+  await nextFrame();
+
+  try {
+    const bytes = await encodeGif({
+      width: w,
+      height: h,
+      count: MOTION_FRAMES,
+      delay: MOTION_STEP,
+      getFrame: (i) => {
+        motionFrame(i, scratch);
+        return ctx.getImageData(0, 0, w, h);
+      },
+      onProgress: (done) => {
+        setBusy(true, `Writing the GIF \u00b7 ${w}\u00d7${h} \u00b7 ${Math.round(done * 100)}%`);
+      },
+    });
+
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'image/gif' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${state.sourceName}-billucam.gif`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+    showToast(
+      `Saved ${w}\u00d7${h} \u00b7 ${MOTION_SECONDS}s loop \u00b7 ${formatBytes(bytes.length)}`,
+    );
+  } catch (err) {
+    showToast('The GIF could not be written.', true);
+    console.error(err);
+  } finally {
+    setBusy(false);
+    ui.gifBtn.disabled = !state.motion;
+    if (wasPlaying) startPlayback();
   }
 }
 
@@ -1444,6 +2123,7 @@ const prefersReducedMotion = () =>
 
 /** Swaps which of the three stage views is on screen and retitles the actions. */
 function setMode(mode) {
+  if (mode !== 'editor') stopPlayback();
   state.mode = mode;
   document.body.dataset.mode = mode;
   ui.dropzone.classList.toggle('is-active', mode === 'empty');
@@ -1451,6 +2131,7 @@ function setMode(mode) {
   ui.cameraView.classList.toggle('is-active', mode === 'camera');
 
   ui.downloadBtn.disabled = mode !== 'editor';
+  ui.gifBtn.disabled = mode !== 'editor' || !state.motion;
   // Adjustments apply to the viewfinder too, so resetting them is useful there.
   ui.resetBtn.disabled = mode === 'empty';
   const camFull = ui.cameraBtn.querySelector('.label-full');
@@ -1463,6 +2144,7 @@ function setMode(mode) {
     if (camShort) camShort.textContent = 'Camera';
   }
   if (mode !== 'camera') ui.camReadout.textContent = '';
+  updateOsdSpec();
 }
 
 function pulseDevelop() {
@@ -1480,12 +2162,45 @@ function setSplit(pct) {
 }
 
 function updateMeta() {
-  if (!state.full) { ui.meta.textContent = ''; return; }
-  const { w, h } = state.full;
-  const mp = ((w * h) / 1e6).toFixed(1);
+  updateOsdSpec();
+  if (!hasImage()) { ui.meta.textContent = ''; return; }
+  const { w, h } = outputSize('full');
+
+  if (state.sheet) {
+    ui.meta.innerHTML =
+      `<strong>${SHEET_CUTS} cuts \u00b7 ${SHEET_COLS} \u00d7 ${SHEET_CUTS / SHEET_COLS} sheet</strong> \u00b7 ` +
+      `prints ${w} \u00d7 ${h} \u00b7 ${state.paper} paper`;
+    return;
+  }
+
   const src = state.sourceBytes ? ` \u00b7 source ${formatBytes(state.sourceBytes)}` : '';
   const scaled = state.preview.w < w ? ' \u00b7 preview downscaled, export is full size' : '';
-  ui.meta.innerHTML = `<strong>${w} \u00d7 ${h}</strong> \u00b7 ${mp} MP${src}${scaled}`;
+  ui.meta.innerHTML =
+    `<strong>${w} \u00d7 ${h}</strong> \u00b7 ${formatMp(w * h)} MP${src}${scaled}`;
+}
+
+/**
+ * The size counter on the OSD, read off whatever the camera is actually
+ * holding: the frame coming from the sensor while the viewfinder is open, the
+ * size a save would write once there is a photo. FINE is the quality flag these
+ * cameras printed beside it, and it is the only half that was ever fixed — the
+ * number used to say 2.0M no matter what was on the screen.
+ */
+function updateOsdSpec() {
+  let px = 0;
+  if (state.mode === 'camera' && camera.video?.videoWidth) {
+    px = camera.video.videoWidth * camera.video.videoHeight;
+  } else if (state.mode === 'editor' && hasImage()) {
+    const { w, h } = outputSize('full');
+    px = w * h;
+  }
+  ui.osdSpec.textContent = px ? `${formatMp(px)}M FINE` : 'FINE';
+}
+
+/** 0.9, 2.1, 12 — a decimal only while it is still telling you something. */
+function formatMp(px) {
+  const mp = px / 1e6;
+  return mp >= 10 ? String(Math.round(mp)) : mp.toFixed(1);
 }
 
 function formatBytes(n) {
@@ -1521,7 +2236,7 @@ function wireEvents() {
   wireCamera();
 
   ui.fileInput.addEventListener('change', () => {
-    loadFile(ui.fileInput.files[0]);
+    loadFiles(ui.fileInput.files);
     ui.fileInput.value = '';
   });
 
@@ -1537,8 +2252,8 @@ function wireEvents() {
   document.addEventListener('drop', (e) => {
     e.preventDefault();
     ui.dropzone.classList.remove('is-over');
-    const file = e.dataTransfer?.files?.[0];
-    if (file) loadFile(file);
+    const files = e.dataTransfer?.files;
+    if (files?.length) loadFiles(files);
   });
 
   document.addEventListener('paste', (e) => {
@@ -1551,16 +2266,27 @@ function wireEvents() {
   });
 
   ui.downloadBtn.addEventListener('click', download);
+  ui.gifBtn.addEventListener('click', downloadGif);
+
+  ui.playToggle.addEventListener('change', () => {
+    if (ui.playToggle.checked) startPlayback();
+    else stopPlayback();
+  });
 
   document.addEventListener('keydown', (e) => {
     if (state.mode !== 'camera' || e.repeat) return;
     if (e.key === ' ' || e.key === 'Enter') {
       if (e.target.closest('input, select, textarea, button')) return;
       e.preventDefault();
-      capture();
+      if (!booth.active) capture();
     } else if (e.key === 'Escape') {
+      // Mid-run, Escape belongs to the sequence before it belongs to the camera.
+      if (booth.active) {
+        cancelBooth();
+        return;
+      }
       stopCamera();
-      setMode(state.full ? 'editor' : 'empty');
+      setMode(hasImage() ? 'editor' : 'empty');
     }
   });
 
@@ -1599,6 +2325,16 @@ function wireEvents() {
     }
   });
 
+  ui.papers?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.paper');
+    if (!btn || !state.sheet) return;
+    state.paper = btn.dataset.paper;
+    syncSheetUi();
+    drawSheetOriginal();
+    updateMeta();
+    requestPreview();
+  });
+
   wireCompareDrag();
 }
 
@@ -1606,7 +2342,7 @@ function wireCamera() {
   const toggleCamera = () => {
     if (state.mode === 'camera') {
       stopCamera();
-      setMode(state.full ? 'editor' : 'empty');
+      setMode(hasImage() ? 'editor' : 'empty');
     } else {
       startCamera(camera.deviceId);
     }
@@ -1623,7 +2359,17 @@ function wireCamera() {
     startCamera();
   });
 
+  ui.dzBoothBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openBooth();
+  });
+
   ui.shutterBtn.addEventListener('click', capture);
+
+  ui.boothBtn.addEventListener('click', () => {
+    if (booth.active) cancelBooth();
+    else startBooth();
+  });
 
   ui.camMirror.addEventListener('change', () => {
     camera.mirror = ui.camMirror.checked;
@@ -1641,7 +2387,7 @@ function wireCamera() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && state.mode === 'camera') {
       stopCamera();
-      setMode(state.full ? 'editor' : 'empty');
+      setMode(hasImage() ? 'editor' : 'empty');
       showToast('Camera closed while the tab was hidden.');
     }
   });
@@ -1651,6 +2397,7 @@ function wireCamera() {
 
 function wireCompareDrag() {
   let dragging = false;
+  let pending = null;  // a touch that has not declared itself a drag yet
 
   const moveTo = (clientX) => {
     const rect = ui.preview.getBoundingClientRect();
@@ -1658,24 +2405,53 @@ function wireCompareDrag() {
     setSplit(((clientX - rect.left) / rect.width) * 100);
   };
 
-  const start = (e) => {
-    if (!state.full || !ui.compareToggle.checked) return;
+  const begin = (e) => {
     dragging = true;
-    ui.canvasWrap.setPointerCapture?.(e.pointerId);
+    pending = null;
     moveTo(e.clientX);
-    e.preventDefault();
+    ui.canvasWrap.setPointerCapture?.(e.pointerId);
   };
 
-  ui.canvasWrap.addEventListener('pointerdown', start);
-  ui.canvasWrap.addEventListener('pointermove', (e) => { if (dragging) moveTo(e.clientX); });
-  ui.canvasWrap.addEventListener('pointerup', () => { dragging = false; });
-  ui.canvasWrap.addEventListener('pointercancel', () => { dragging = false; });
+  const end = () => {
+    dragging = false;
+    pending = null;
+  };
+
+  ui.canvasWrap.addEventListener('pointerdown', (e) => {
+    if (!hasImage() || !ui.compareToggle.checked) return;
+
+    // On a phone the photo fills the top of the screen, so a touch landing on it
+    // is more often the start of a scroll than of a comparison. Wait for sideways
+    // movement before taking the gesture; the divider itself is unambiguous.
+    if (e.pointerType === 'touch' && !e.target.closest('.compare-handle')) {
+      pending = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      return;
+    }
+    begin(e);
+    e.preventDefault();
+  });
+
+  ui.canvasWrap.addEventListener('pointermove', (e) => {
+    if (dragging) {
+      moveTo(e.clientX);
+      return;
+    }
+    if (!pending || e.pointerId !== pending.id) return;
+    const dx = e.clientX - pending.x;
+    const dy = e.clientY - pending.y;
+    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) begin(e);
+  });
+
+  ui.canvasWrap.addEventListener('pointerup', end);
+  // Fired when the page takes the gesture over to scroll.
+  ui.canvasWrap.addEventListener('pointercancel', end);
 }
 
 /* --- boot ---------------------------------------------------------------- */
 
 buildControls();
 wireEvents();
+syncSheetUi();
 ui.dateText.disabled = true;
 ui.camDevice.hidden = true;
 
@@ -1750,7 +2526,7 @@ setMode('empty');
     // Powering down must not leave the camera running behind the overlay.
     if (state.mode === 'camera') {
       stopCamera();
-      setMode(state.full ? 'editor' : 'empty');
+      setMode(hasImage() ? 'editor' : 'empty');
     }
     boot.classList.remove('hidden', 'is-leaving');
     boot.dataset.state = 'on';

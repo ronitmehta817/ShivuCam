@@ -1,4 +1,4 @@
-# Digicam
+# Billucam
 
 A browser tool that gives any photo the look of an early-2000s point-and-shoot,
 then lets you download the result at full original resolution. Load a file or
@@ -15,7 +15,7 @@ If your browser blocks anything over the `file://` protocol, serve the folder
 instead:
 
 ```bash
-cd digicam-filter
+cd Shivi-cam
 python3 -m http.server 8000
 # then visit http://localhost:8000
 ```

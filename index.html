@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#2e2e2c" />
 <meta name="color-scheme" content="dark" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<title>Shivucam — Digital Camera Filter</title>
+<title>Billucam — Digital Camera Filter</title>
 <link rel="preconnect" href="https://fonts.bunny.net" />
 <link href="https://fonts.bunny.net/css?family=archivo:400,500,600,700|archivo-narrow:600,700|silkscreen:400,700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
@@ -35,7 +35,7 @@ finish review, the verdict, and DESIGN.md.
   <div class="boot-inner">
     <div class="boot-plate">
       <p class="boot-wordmark boot-enter" style="--i: 0">
-        SHIVUCAM<span class="boot-model">CCD-03</span>
+        BILLUCAM<span class="boot-model">CCD-03</span>
       </p>
       <p class="boot-standby boot-enter" style="--i: 1">
         <span class="boot-standby-dot" aria-hidden="true"></span>
@@ -44,16 +44,15 @@ finish review, the verdict, and DESIGN.md.
     </div>
 
     <div class="boot-screen boot-enter" style="--i: 2">
-      <h2 class="boot-title">Made this for chhotu baby.</h2>
+      <h2 class="boot-title">For My chhotu baby</h2>
 
       <p class="boot-copy">
-        You wanted a digital camera from the 2000s, couldn't find it anywhere
-        ergo i built this for my tingu pingu
-        🫣🫣🫣
+        You wanted a digital camera from the 2000s, couldn't find it anywhere ergo
+        i built this for my tingu pingu 🫣🫣🫣
       </p>
 
       <p class="boot-spec">
-        CCD 2.0MP · 4:3 · JPEG / PNG · ON DEVICE
+        CCD LOOK · FULL&nbsp;RESOLUTION · ON&nbsp;DEVICE
       </p>
     </div>
 
@@ -84,7 +83,7 @@ finish review, the verdict, and DESIGN.md.
   <div class="brand">
     <span class="rec-dot" aria-hidden="true"></span>
     <div class="brand-lockup" role="button" tabindex="0" aria-label="Power off, back to the welcome screen">
-      <h1>SHIVUCAM</h1>
+      <h1>BILLUCAM</h1>
       <span class="brand-model">CCD-03</span>
     </div>
     <span class="tag">early-2000s digital camera filter</span>
@@ -102,6 +101,11 @@ finish review, the verdict, and DESIGN.md.
     <button id="downloadBtn" class="btn btn-primary" type="button" disabled>
       <span class="label-full">Download</span><span class="label-short">Save</span>
     </button>
+    <!-- The booth's second output. On screen only once there is one to save. -->
+    <button id="gifBtn" class="btn btn-ghost" type="button" disabled
+            aria-label="Save the moving sheet as a GIF">
+      <span class="label-full">Save GIF</span><span class="label-short">GIF</span>
+    </button>
   </div>
 </header>
 
@@ -114,7 +118,7 @@ finish review, the verdict, and DESIGN.md.
 
           <div class="lcd-osd" aria-hidden="true">
             <span class="osd-mode"></span>
-            <span class="osd-spec">2.0M FINE</span>
+            <span class="osd-spec" id="osdSpec">FINE</span>
             <span class="osd-batt"><i></i><i></i><i></i></span>
           </div>
 
@@ -145,8 +149,17 @@ finish review, the verdict, and DESIGN.md.
                   <span class="for-mobile">Camera</span>
                   <span class="for-desk">Shoot with camera</span>
                 </button>
+                <button id="dzBoothBtn" class="btn btn-ghost" type="button"
+                        aria-label="Open the photobooth: four shots on a timer">
+                  <span class="booth-key-film" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                  <span class="for-mobile">Photobooth</span>
+                  <span class="for-desk">Open the photobooth</span>
+                </button>
               </div>
-              <p class="dz-note dz-enter" style="--i: 5">JPG · PNG · WEBP · stays on this device</p>
+              <p class="dz-note dz-enter" style="--i: 5">
+                <span class="for-mobile">Four photos print as a 4-cut sheet</span>
+                <span class="for-desk">Four photos print as a 4-cut sheet · JPG · PNG · WEBP · stays on this device</span>
+              </p>
             </div>
           </div>
 
@@ -157,6 +170,16 @@ finish review, the verdict, and DESIGN.md.
                 <span></span><span></span><span></span><span></span>
               </div>
               <div class="cam-flash" id="camFlash" aria-hidden="true"></div>
+
+              <!-- Countdown and cut tally, only on screen during a booth run -->
+              <div class="booth-osd" id="boothOsd" aria-hidden="true">
+                <span class="booth-count" id="boothCount"></span>
+                <span class="booth-step" id="boothStep"></span>
+              </div>
+              <div class="booth-slots" id="boothSlots" aria-hidden="true">
+                <i></i><i></i><i></i><i></i>
+              </div>
+
               <div class="busy" id="camBusy">
                 <span class="spinner"></span><span id="camBusyText">Starting camera…</span>
               </div>
@@ -165,6 +188,11 @@ finish review, the verdict, and DESIGN.md.
             <div class="cam-bar">
               <div class="cam-side">
                 <button id="camCloseBtn" class="btn cam-close" type="button">Close</button>
+                <button id="boothBtn" class="booth-key" type="button" aria-pressed="false"
+                        aria-label="Shoot a four cut sheet" disabled>
+                  <span class="booth-key-film" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                  <span>4-cut</span>
+                </button>
                 <select id="camDevice" class="cam-select" aria-label="Camera"></select>
               </div>
 
@@ -206,10 +234,16 @@ finish review, the verdict, and DESIGN.md.
 
             <div class="stage-foot">
               <div class="meta" id="meta"></div>
-              <label class="switch">
-                <input type="checkbox" id="compareToggle" checked />
-                <span>Compare slider</span>
-              </label>
+              <div class="foot-switches">
+                <label class="switch switch-motion">
+                  <input type="checkbox" id="playToggle" />
+                  <span>Play motion</span>
+                </label>
+                <label class="switch">
+                  <input type="checkbox" id="compareToggle" checked />
+                  <span>Compare slider</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -224,6 +258,36 @@ finish review, the verdict, and DESIGN.md.
   </section>
 
   <aside class="panel">
+    <!-- Only on screen once a sheet is loaded; a single photo has no paper -->
+    <details class="panel-fold" id="foldPrint" open hidden>
+      <summary class="panel-head">
+        <h2>Print</h2>
+      </summary>
+      <div class="papers" id="papers" role="group" aria-label="Paper">
+        <button type="button" class="paper is-active" data-paper="white" aria-pressed="true">
+          <span class="paper-chip" style="--stock: #f7f5f0" aria-hidden="true"></span>White
+        </button>
+        <button type="button" class="paper" data-paper="black" aria-pressed="false">
+          <span class="paper-chip" style="--stock: #141416" aria-hidden="true"></span>Black
+        </button>
+        <button type="button" class="paper" data-paper="cream" aria-pressed="false">
+          <span class="paper-chip" style="--stock: #f0e4cd" aria-hidden="true"></span>Cream
+        </button>
+        <button type="button" class="paper" data-paper="pink" aria-pressed="false">
+          <span class="paper-chip" style="--stock: #f7dbe3" aria-hidden="true"></span>Pink
+        </button>
+        <button type="button" class="paper" data-paper="mint" aria-pressed="false">
+          <span class="paper-chip" style="--stock: #d9ebe1" aria-hidden="true"></span>Mint
+        </button>
+      </div>
+      <p class="hint">
+        Four cuts, two by two, on one sheet. The filter only touches the photos, so
+        the paper and the footer stay clean. A sheet shot in the booth also moves —
+        <strong>Save GIF</strong> writes the same print as a 3 second loop, on the
+        paper picked here.
+      </p>
+    </details>
+
     <details class="panel-fold" id="foldAdjustments" open>
       <summary class="panel-head">
         <h2>Adjustments</h2>
@@ -240,7 +304,7 @@ finish review, the verdict, and DESIGN.md.
         <span>Burn in date</span>
       </label>
       <input type="text" id="dateText" class="text-input" maxlength="32" placeholder="2024/04/07 11:08:21" autocomplete="off" enterkeyhint="done" spellcheck="false" />
-      <p class="hint">White OSD stamp, bottom left — YYYY/MM/DD HH:MM:SS, like a real Shivucam LCD.</p>
+      <p class="hint">White OSD stamp, bottom left — YYYY/MM/DD HH:MM:SS, like a real digicam LCD.</p>
     </details>
 
     <details class="panel-fold" id="foldExport" open>
@@ -260,16 +324,17 @@ finish review, the verdict, and DESIGN.md.
 </main>
 
 <div class="cam-base">
-  <span>Shivucam CCD-03</span>
+  <span>Billucam CCD-03</span>
   <span class="socket" aria-hidden="true"></span>
-  <span>CCD 2.0MP · JPEG / PNG · processed on this device</span>
+  <span>CCD look, full resolution · JPEG / PNG · processed on this device</span>
 </div>
 
 </div>
 
-<input type="file" id="fileInput" accept="image/*" hidden />
+<input type="file" id="fileInput" accept="image/*" multiple hidden />
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="gif.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

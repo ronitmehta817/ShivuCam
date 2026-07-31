@@ -1,4 +1,4 @@
-# Digicam CCD-03 — design
+# Billucam CCD-03 — design
 
 The interface is the back of a 2003 compact camera. Not a photo editor with a
 retro skin: a body you hold, with a screen on it and keys around it. Every
