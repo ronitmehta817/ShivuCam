@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.bunny.net; font-src https://fonts.bunny.net data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#2e2e2c" />
 <meta name="color-scheme" content="dark" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<title>Billucam — Digital Camera Filter</title>
+<title>Digicam — Digital Camera Filter</title>
 <link rel="preconnect" href="https://fonts.bunny.net" />
 <link href="https://fonts.bunny.net/css?family=archivo:400,500,600,700|archivo-narrow:600,700|silkscreen:400,700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
@@ -35,7 +37,7 @@ finish review, the verdict, and DESIGN.md.
   <div class="boot-inner">
     <div class="boot-plate">
       <p class="boot-wordmark boot-enter" style="--i: 0">
-        BILLUCAM<span class="boot-model">CCD-03</span>
+        DIGICAM<span class="boot-model">CCD-03</span>
       </p>
       <p class="boot-standby boot-enter" style="--i: 1">
         <span class="boot-standby-dot" aria-hidden="true"></span>
@@ -44,15 +46,15 @@ finish review, the verdict, and DESIGN.md.
     </div>
 
     <div class="boot-screen boot-enter" style="--i: 2">
-      <h2 class="boot-title">For My chhotu baby</h2>
+      <h2 class="boot-title">Photos and clips that look like 2003.</h2>
 
       <p class="boot-copy">
-        You wanted a digital camera from the 2000s, couldn't find it anywhere ergo
-        i built this for my tingu pingu 🫣🫣🫣
+        Blown highlights, a confused white balance, and a burned-in date stamp.
+        Shoot or record through the filter, or drop in a photo you already have.
       </p>
 
       <p class="boot-spec">
-        CCD LOOK · FULL&nbsp;RESOLUTION · ON&nbsp;DEVICE
+        FULL-RES STILLS · DEVICE-LOCKED SAVES
       </p>
     </div>
 
@@ -83,14 +85,14 @@ finish review, the verdict, and DESIGN.md.
   <div class="brand">
     <span class="rec-dot" aria-hidden="true"></span>
     <div class="brand-lockup" role="button" tabindex="0" aria-label="Power off, back to the welcome screen">
-      <h1>BILLUCAM</h1>
+      <h1>DIGICAM</h1>
       <span class="brand-model">CCD-03</span>
     </div>
     <span class="tag">early-2000s digital camera filter</span>
   </div>
   <div class="topbar-actions">
     <button id="pickBtn" class="btn btn-ghost" type="button">
-      <span class="label-full">Open image</span><span class="label-short">Open</span>
+      <span class="label-full">Open media</span><span class="label-short">Open</span>
     </button>
     <button id="cameraBtn" class="btn btn-ghost" type="button">
       <span class="label-full">Use camera</span><span class="label-short">Camera</span>
@@ -99,12 +101,12 @@ finish review, the verdict, and DESIGN.md.
       <span class="label-full">Reset</span><span class="label-short">Reset</span>
     </button>
     <button id="downloadBtn" class="btn btn-primary" type="button" disabled>
-      <span class="label-full">Download</span><span class="label-short">Save</span>
+      <span class="label-full">Secure save</span><span class="label-short">Lock</span>
     </button>
     <!-- The booth's second output. On screen only once there is one to save. -->
     <button id="gifBtn" class="btn btn-ghost" type="button" disabled
-            aria-label="Save the moving sheet as a GIF">
-      <span class="label-full">Save GIF</span><span class="label-short">GIF</span>
+            aria-label="Lock the moving sheet for this device">
+      <span class="label-full">Lock GIF</span><span class="label-short">Lock</span>
     </button>
   </div>
 </header>
@@ -136,11 +138,11 @@ finish review, the verdict, and DESIGN.md.
                 </svg>
               </div>
               <p class="dz-title dz-enter" style="--i: 2">
-                <span class="for-mobile">Tap to choose a photo</span>
-                <span class="for-desk">Drop a photo here</span>
+                <span class="for-mobile">Choose a photo or locked file</span>
+                <span class="for-desk">Drop a photo or .digicam file here</span>
               </p>
               <p class="dz-sub dz-enter" style="--i: 3">
-                <span class="for-mobile">Browse your library, or shoot with the camera</span>
+                <span class="for-mobile">Browse your library, shoot a photo, or record a clip</span>
                 <span class="for-desk">or click to browse · paste with <kbd>⌘V</kbd></span>
               </p>
               <div class="dz-actions dz-enter" style="--i: 4">
@@ -148,6 +150,13 @@ finish review, the verdict, and DESIGN.md.
                 <button id="dzCameraBtn" class="btn btn-ghost" type="button">
                   <span class="for-mobile">Camera</span>
                   <span class="for-desk">Shoot with camera</span>
+                </button>
+                <button id="dzVideoBtn" class="btn btn-ghost" type="button">
+                  <span class="video-key-icon" aria-hidden="true">
+                    <i></i><i></i>
+                  </span>
+                  <span class="for-mobile">Video</span>
+                  <span class="for-desk">Record video</span>
                 </button>
                 <button id="dzBoothBtn" class="btn btn-ghost" type="button"
                         aria-label="Open the photobooth: four shots on a timer">
@@ -157,8 +166,8 @@ finish review, the verdict, and DESIGN.md.
                 </button>
               </div>
               <p class="dz-note dz-enter" style="--i: 5">
-                <span class="for-mobile">Four photos print as a 4-cut sheet</span>
-                <span class="for-desk">Four photos print as a 4-cut sheet · JPG · PNG · WEBP · stays on this device</span>
+                <span class="for-mobile">Secure saves reopen only in this browser profile</span>
+                <span class="for-desk">Images · video · .digicam device lock · plaintext never downloads</span>
               </p>
             </div>
           </div>
@@ -178,6 +187,14 @@ finish review, the verdict, and DESIGN.md.
               </div>
               <div class="booth-slots" id="boothSlots" aria-hidden="true">
                 <i></i><i></i><i></i><i></i>
+              </div>
+
+              <!-- A machine readout, not part of the recording itself -->
+              <div class="video-rec-osd" id="videoRecOsd" aria-hidden="true">
+                <span class="video-rec-lamp"></span>
+                <span>REC</span>
+                <span id="videoRecTime">00:00</span>
+                <span class="video-rec-limit">/ 00:30</span>
               </div>
 
               <div class="busy" id="camBusy">
@@ -201,6 +218,10 @@ finish review, the verdict, and DESIGN.md.
               </button>
 
               <div class="cam-side cam-side-right">
+                <label class="switch switch-video-mode">
+                  <input type="checkbox" id="camVideo" />
+                  <span>Video</span>
+                </label>
                 <label class="switch">
                   <input type="checkbox" id="camMirror" />
                   <span>Mirror</span>
@@ -247,6 +268,34 @@ finish review, the verdict, and DESIGN.md.
             </div>
           </div>
 
+          <div class="stage-view video-viewer" id="videoView">
+            <div class="video-wrap" id="videoWrap">
+              <video id="videoPreview" playsinline preload="metadata"
+                     aria-label="Recorded video preview"></video>
+              <img id="animationPreview" class="animation-preview"
+                   alt="Unlocked animated GIF preview" draggable="false" />
+              <button id="videoScreenAction" class="video-screen-action" type="button"
+                      aria-label="Play recorded video">
+                <svg class="video-play-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 5.5v13l10-6.5z"></path>
+                </svg>
+                <svg class="video-pause-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 5h4v14H7zM13 5h4v14h-4z"></path>
+                </svg>
+              </button>
+            </div>
+
+            <div class="stage-foot">
+              <div class="meta" id="videoMeta"></div>
+              <div class="foot-switches">
+                <label class="switch switch-video-play">
+                  <input type="checkbox" id="videoPlayToggle" />
+                  <span>Play clip</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <!-- Sits on the screen itself, so it shows whatever the camera is doing -->
           <div class="busy" id="busy">
             <span class="spinner"></span><span id="busyText">Working…</span>
@@ -258,6 +307,31 @@ finish review, the verdict, and DESIGN.md.
   </section>
 
   <aside class="panel">
+    <details class="panel-fold" id="foldVideo" open hidden>
+      <summary class="panel-head">
+        <h2 id="videoPanelTitle">Video</h2>
+      </summary>
+      <div class="video-summary" id="videoSummary"></div>
+      <button id="videoRetakeBtn" class="btn btn-ghost video-retake" type="button">
+        Record another
+      </button>
+      <div class="secure-notice" role="note">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+        </svg>
+        <p>
+          <strong>Device locked</strong>
+          <span>Save writes only encrypted .digicam data. Clearing this browser's site data permanently destroys access.</span>
+        </p>
+      </div>
+      <p class="hint" id="videoHint">
+        The low-light look is baked into every frame. Clips run at 15 fps for up
+        to 30 seconds; the browser writes MP4 when it can and WebM otherwise.
+        Microphone sound is included when permission is available.
+      </p>
+    </details>
+
     <!-- Only on screen once a sheet is loaded; a single photo has no paper -->
     <details class="panel-fold" id="foldPrint" open hidden>
       <summary class="panel-head">
@@ -283,7 +357,7 @@ finish review, the verdict, and DESIGN.md.
       <p class="hint">
         Four cuts, two by two, on one sheet. The filter only touches the photos, so
         the paper and the footer stay clean. A sheet shot in the booth also moves —
-        <strong>Save GIF</strong> writes the same print as a 3 second loop, on the
+        <strong>Lock GIF</strong> secures the same print as a 3 second loop, on the
         paper picked here.
       </p>
     </details>
@@ -309,31 +383,43 @@ finish review, the verdict, and DESIGN.md.
 
     <details class="panel-fold" id="foldExport" open>
       <summary class="panel-head">
-        <h2>Export</h2>
+        <h2>Secure export</h2>
       </summary>
       <div class="seg" id="formatSeg" role="group" aria-label="Export format">
         <button type="button" class="seg-btn is-active" data-format="png" aria-pressed="true">PNG · lossless</button>
         <button type="button" class="seg-btn" data-format="jpeg" aria-pressed="false">JPEG · 100%</button>
       </div>
+      <div class="secure-notice" role="note">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+        </svg>
+        <p>
+          <strong>Strict device lock</strong>
+          <span>Only this browser profile at this exact site address can unlock the file. There is no recovery key.</span>
+        </p>
+      </div>
       <p class="hint" id="exportHint">
-        Full original resolution, no resampling. PNG re-encodes pixel-for-pixel with zero
-        generation loss.
+        PNG or JPEG is prepared in memory, then AES-256-GCM encrypted before
+        download. The saved file is .digicam, never a viewable plaintext image.
       </p>
     </details>
   </aside>
 </main>
 
 <div class="cam-base">
-  <span>Billucam CCD-03</span>
+  <span>Digicam CCD-03</span>
   <span class="socket" aria-hidden="true"></span>
-  <span>CCD look, full resolution · JPEG / PNG · processed on this device</span>
+  <span>AES-256-GCM · DEVICE KEY · PLAINTEXT NEVER SAVED</span>
 </div>
 
 </div>
 
-<input type="file" id="fileInput" accept="image/*" multiple hidden />
+<input type="file" id="fileInput"
+       accept="image/*,.digicam,application/x-digicam" multiple hidden />
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="secure.js"></script>
 <script src="gif.js"></script>
 <script src="app.js"></script>
 </body>
