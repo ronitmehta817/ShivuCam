@@ -1487,6 +1487,13 @@ body[data-motion="on"] #gifBtn { display: inline-flex; }
 }
 .secure-notice span { overflow-wrap: anywhere; }
 
+.key-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
 /* Switch labels inside the screen are OSD print, like everything else on it */
 .lcd-screen .switch span {
   font: 700 9.5px/1 var(--font-print);
@@ -1900,6 +1907,47 @@ input[type="range"]::-moz-range-thumb {
   background: var(--led-red);
   box-shadow: 0 0 7px color-mix(in oklch, var(--led-red) 75%, transparent);
   animation: recPulse 1.4s var(--ease-in-out) infinite;
+}
+
+/* ---------- key-file prompt overlay ---------- */
+
+.key-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(10% 0 0 / 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 24px;
+}
+.key-prompt-overlay[hidden] { display: none; }
+
+.key-prompt {
+  background: var(--body);
+  border: 1px solid var(--chrome-border);
+  border-radius: 10px;
+  padding: 28px 24px;
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+}
+.key-prompt h3 {
+  font: 600 16px/1.3 var(--ff);
+  color: var(--chrome-ink);
+  margin: 0 0 10px;
+}
+.key-prompt p {
+  font: 400 13px/1.5 var(--ff);
+  color: var(--text-soft);
+  margin: 0 0 20px;
+}
+.key-prompt-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
 }
 
 /* ---------- power-on screen ---------- */
