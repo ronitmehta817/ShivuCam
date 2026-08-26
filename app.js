@@ -1088,17 +1088,45 @@ function requestPreview(quality = 'preview') {
  */
 async function loadFiles(files) {
   const selected = [...files];
-  const locked = selected.filter(isDigicamSecureFile);
+
+  // If a key file is dropped/selected, import it directly.
+  const keyFiles = selected.filter(isDigicamKeyFile);
+  if (keyFiles.length) {
+    await handleKeyFileImport(keyFiles[0]);
+    return;
+  }
+
+  let locked = selected.filter(isDigicamSecureFile);
+
+  // On mobile, the file picker may strip the extension or report an empty MIME.
+  // Fall back to checking the file's magic bytes (DGC1 header) for any
+  // unrecognized file that isn't an image or video.
+  if (!locked.length) {
+    const unknown = selected.filter(
+      (f) => !f.type || (!f.type.startsWith('image/') && !f.type.startsWith('video/')),
+    );
+    for (const f of unknown) {
+      if (f.size >= DGC_HEADER_SIZE) {
+        try {
+          const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+          if (head[0] === 0x44 && head[1] === 0x47 && head[2] === 0x43 && head[3] === 0x31) {
+            locked.push(f);
+          }
+        } catch (_) { /* skip unreadable files */ }
+      }
+    }
+  }
+
   if (locked.length) {
     if (selected.length > 1) {
-      showToast('Opening the first locked file. Secure files are opened one at a time.');
+      showToast('Opening the first encrypted file. Secure files are opened one at a time.');
     }
     return loadSecureFile(locked[0]);
   }
 
   const images = selected.filter((f) => f.type.startsWith('image/'));
   if (images.length === 0) {
-    showToast('Choose an image or a .digicam locked file.', true);
+    showToast('Choose an image or a saved .digicam file.', true);
     return;
   }
   if (images.length >= SHEET_CUTS) return loadSheet(images.slice(0, SHEET_CUTS));
@@ -1112,42 +1140,131 @@ async function loadSecureFile(file) {
   if (!file) return;
   stopCamera();
   setMode(restingMode());
-  setBusy(true, 'Checking this device\u2019s key\u2026');
+  setBusy(true, 'Checking encryption key\u2026');
 
   try {
     const { blob, metadata } = await decryptDigicamFile(file, (progress) => {
-      setBusy(true, `Unlocking on this device\u2026 ${Math.round(progress * 100)}%`);
+      setBusy(true, `Decrypting\u2026 ${Math.round(progress * 100)}%`);
     });
     setBusy(false);
-
-    if (metadata.kind === 'image') {
-      const unlocked = new File(
-        [blob],
-        metadata.name || 'unlocked-image',
-        {
-          type: metadata.mime,
-          lastModified: Date.parse(metadata.createdAt) || Date.now(),
-        },
-      );
-      await loadFile(unlocked);
-      showToast('Unlocked with this device\u2019s private key.');
-      return;
-    }
-
-    openVideoOutput({
-      blob,
-      mime: metadata.mime,
-      kind: metadata.kind,
-      name: metadata.name,
-      w: metadata.w || 0,
-      h: metadata.h || 0,
-      duration: metadata.duration || 0,
-      hasAudio: metadata.hasAudio,
-      unlocked: true,
-    });
+    openDecryptedMedia(blob, metadata);
   } catch (error) {
     setBusy(false);
+    if (error?.code === 'KEY_MISSING') {
+      // Key not in IDB — prompt user for their key file, then retry.
+      promptForKeyFile(file);
+      return;
+    }
     showToast(secureOpenError(error), true);
+    console.error(error);
+  }
+}
+
+function openDecryptedMedia(blob, metadata) {
+  if (metadata.kind === 'image') {
+    const unlocked = new File(
+      [blob],
+      metadata.name || 'unlocked-image',
+      {
+        type: metadata.mime,
+        lastModified: Date.parse(metadata.createdAt) || Date.now(),
+      },
+    );
+    loadFile(unlocked);
+    showToast('Decrypted with your key.');
+    return;
+  }
+
+  openVideoOutput({
+    blob,
+    mime: metadata.mime,
+    kind: metadata.kind,
+    name: metadata.name,
+    w: metadata.w || 0,
+    h: metadata.h || 0,
+    duration: metadata.duration || 0,
+    hasAudio: metadata.hasAudio,
+    unlocked: true,
+  });
+}
+
+let pendingSecureFile = null;
+let pendingSaveAfterKeyImport = null;
+
+function promptForKeyFile(secureFile) {
+  pendingSecureFile = secureFile || null;
+  const overlay = document.getElementById('keyPrompt');
+  if (overlay) overlay.hidden = false;
+}
+
+function dismissKeyPrompt() {
+  const overlay = document.getElementById('keyPrompt');
+  if (overlay) overlay.hidden = true;
+  pendingSecureFile = null;
+  if (pendingSaveAfterKeyImport) {
+    pendingSaveAfterKeyImport.reject(
+      new DigicamSecureError('KEY_MISSING', 'Key file not loaded.'),
+    );
+    pendingSaveAfterKeyImport = null;
+  }
+}
+
+async function handleKeyFileImport(file) {
+  const pendingOpen = pendingSecureFile;
+  const pendingSave = pendingSaveAfterKeyImport;
+  pendingSaveAfterKeyImport = null;
+  dismissKeyPrompt();
+  setBusy(true, 'Importing key file\u2026');
+  try {
+    await importKeyFile(file);
+    showToast('Key file loaded \u00b7 encryption key restored');
+    setBusy(false);
+    if (pendingOpen) {
+      await loadSecureFile(pendingOpen);
+    } else if (pendingSave) {
+      const result = await performLockedSave(
+        pendingSave.blob, pendingSave.metadata, pendingSave.label,
+      );
+      pendingSave.resolve(result);
+    }
+  } catch (error) {
+    setBusy(false);
+    if (pendingSave) pendingSave.reject(error);
+    showToast(
+      error instanceof DigicamSecureError
+        ? error.message
+        : 'Could not read the key file.',
+      true,
+    );
+    console.error(error);
+  }
+}
+
+async function exportKeyToFile() {
+  try {
+    const rawBytes = await getRawKeyBytes();
+    if (!rawBytes) {
+      showToast('No key to export. Save a photo first to generate one.', true);
+      return;
+    }
+    const blob = exportKeyFileBlob(rawBytes);
+    const canShare = navigator.canShare && navigator.share;
+    if (canShare) {
+      const file = new File([blob], 'digicam.key', { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'Digicam encryption key' });
+          showToast('Key file saved \u00b7 keep it safe');
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+        }
+      }
+    }
+    downloadBlobAsFile(blob, 'digicam.key');
+    showToast('Key file downloaded \u00b7 keep it safe');
+  } catch (error) {
+    showToast('Could not export the key file.', true);
     console.error(error);
   }
 }
@@ -1155,9 +1272,9 @@ async function loadSecureFile(file) {
 function secureOpenError(error) {
   switch (error?.code) {
     case 'KEY_MISSING':
-      return 'No matching device key exists in this browser profile. The file cannot be recovered here.';
+      return 'No encryption key found. Import your digicam.key file to restore access.';
     case 'AUTH_FAILED':
-      return 'Unlock refused: another device locked this file, or its encrypted bytes were changed.';
+      return 'Wrong key or corrupted file. This file was encrypted with a different key.';
     case 'ORIGIN_REQUIRED':
     case 'INSECURE_CONTEXT':
       return 'Open Digicam from its original localhost or HTTPS address to use the device key.';
@@ -2318,20 +2435,97 @@ const stampSlug = () => {
  * ========================================================================= */
 
 async function lockAndDownload(blob, metadata, label) {
+  // Before encrypting, make sure we have a key. If IDB is empty AND the user
+  // has previously received a key file, they need to load it first — otherwise
+  // we'd generate a different key and break continuity.
+  const existingKey = await getDigicamDeviceKey({ create: false });
+  if (!existingKey) {
+    const hadKeyBefore = localStorage.getItem('digicam-key-file-delivered');
+    if (hadKeyBefore) {
+      // The user had a key before but IDB lost it. Ask them to load their file.
+      return new Promise((resolve, reject) => {
+        pendingSaveAfterKeyImport = { blob, metadata, label, resolve, reject };
+        promptForKeyFile(null);
+      });
+    }
+    // Truly first time — a new key will be generated by encryptDigicamBlob.
+  }
+
+  return performLockedSave(blob, metadata, label);
+}
+
+async function performLockedSave(blob, metadata, label) {
   const { blob: locked } = await encryptDigicamBlob(blob, metadata, (progress) => {
-    setBusy(true, `Locking ${label} for this device\u2026 ${Math.round(progress * 100)}%`);
+    setBusy(true, `Encrypting ${label} for this device\u2026 ${Math.round(progress * 100)}%`);
   });
-  const url = URL.createObjectURL(locked);
+  const filename = `digicam-${stampSlug()}${DIGICAM_SECURE_EXTENSION}`;
+
+  // Deliver the key file if the user hasn't received one yet.
+  const keyFileDelivered = localStorage.getItem('digicam-key-file-delivered');
+  const needsKeyFile = !keyFileDelivered || wasKeyNewlyCreated();
+  let keyFileBlob = null;
+  if (needsKeyFile) {
+    const rawBytes = await getRawKeyBytes();
+    if (rawBytes) {
+      keyFileBlob = exportKeyFileBlob(rawBytes);
+      localStorage.setItem('digicam-key-file-delivered', '1');
+    }
+  }
+
+  // On mobile (iOS/Android), the native share sheet is more reliable than
+  // <a download> for blob URLs. It lets the user explicitly "Save to Files".
+  const canShare = navigator.canShare && navigator.share;
+  if (canShare) {
+    const files = [new File([locked], filename, { type: DIGICAM_SECURE_MIME })];
+    if (keyFileBlob) {
+      files.push(new File([keyFileBlob], 'digicam.key', { type: 'application/json' }));
+    }
+    if (navigator.canShare({ files })) {
+      try {
+        await navigator.share({
+          files,
+          title: keyFileBlob ? 'Save photo + key file (keep the .key safe!)' : 'Save encrypted photo',
+        });
+        if (keyFileBlob) {
+          showToast('Saved with key file \u00b7 keep digicam.key safe, you need it to recover files');
+        } else {
+          showToast(`Saved \u00b7 ${formatBytes(locked.size)} \u00b7 encrypted for this device`);
+        }
+        return locked;
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          showToast('Save cancelled.');
+          return locked;
+        }
+      }
+    }
+  }
+
+  // Fallback: programmatic <a download>
+  downloadBlobAsFile(locked, filename);
+  if (keyFileBlob) {
+    // Short delay so the browser doesn't suppress the second download.
+    await new Promise((r) => setTimeout(r, 800));
+    downloadBlobAsFile(keyFileBlob, 'digicam.key');
+  }
+
+  if (keyFileBlob) {
+    showToast('Saved with key file \u00b7 keep digicam.key safe, you need it to recover files');
+  } else {
+    showToast(`Saved \u00b7 ${formatBytes(locked.size)} \u00b7 encrypted for this device`);
+  }
+  return locked;
+}
+
+function downloadBlobAsFile(blob, filename) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  // The visible filename reveals neither the original name nor media type.
-  a.download = `digicam-${stampSlug()}${DIGICAM_SECURE_EXTENSION}`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  showToast(`Device locked \u00b7 ${formatBytes(locked.size)} \u00b7 no recovery key`);
-  return locked;
 }
 
 function secureSaveError(error) {
@@ -2435,8 +2629,8 @@ function updateVideoMeta() {
   ui.videoPanelTitle.textContent = isAnimation ? 'Animated sheet' : 'Video';
   ui.videoRetakeBtn.hidden = isAnimation;
   ui.videoHint.textContent = isAnimation
-    ? 'This GIF is unlocked only in memory. Secure save writes a new device-locked .digicam file; no plaintext GIF is downloaded.'
-    : 'The low-light look is baked into every frame. Clips run at 15 fps for up to 30 seconds. Secure save encrypts the encoded movie before anything is downloaded.';
+    ? 'This GIF is decrypted only in memory. Save writes an encrypted .digicam file that only opens on this device.'
+    : 'The low-light look is baked into every frame. Clips run at 15 fps for up to 30 seconds. Save encrypts the video for this device before downloading.';
 }
 
 async function playVideoOutput() {
@@ -2483,7 +2677,7 @@ async function downloadVideo() {
   if (!video) return;
 
   ui.downloadBtn.disabled = true;
-  setBusy(true, `Preparing ${video.kind === 'animation' ? 'GIF' : 'video'} lock\u2026`);
+  setBusy(true, `Preparing ${video.kind === 'animation' ? 'GIF' : 'video'} save\u2026`);
   try {
     const storedName = video.name.toLowerCase().endsWith(`.${video.ext}`)
       ? video.name
@@ -2539,7 +2733,7 @@ async function download() {
     const blob = await toBlob(out, isPng ? 'image/png' : 'image/jpeg', isPng ? undefined : 1);
     if (!blob) throw new Error('encode failed');
 
-    setBusy(true, 'Preparing image lock\u2026');
+    setBusy(true, 'Preparing image save\u2026');
     await lockAndDownload(
       blob,
       {
@@ -2614,7 +2808,7 @@ async function downloadGif() {
     });
 
     const gif = new Blob([bytes], { type: 'image/gif' });
-    setBusy(true, 'Preparing GIF lock\u2026');
+    setBusy(true, 'Preparing GIF save\u2026');
     await lockAndDownload(
       gif,
       {
@@ -2781,7 +2975,7 @@ function setMode(mode) {
   const saveFull = ui.downloadBtn.querySelector('.label-full');
   const saveShort = ui.downloadBtn.querySelector('.label-short');
   if (saveFull) saveFull.textContent = 'Secure save';
-  if (saveShort) saveShort.textContent = 'Lock';
+  if (saveShort) saveShort.textContent = 'Save';
   if (mode !== 'camera') ui.camReadout.textContent = '';
   updateOsdSpec();
 }
@@ -2909,6 +3103,23 @@ function wireEvents() {
   ui.fileInput.addEventListener('change', () => {
     loadFiles(ui.fileInput.files);
     ui.fileInput.value = '';
+  });
+
+  // Key file import wiring.
+  const keyFileInput = document.getElementById('keyFileInput');
+  keyFileInput?.addEventListener('change', () => {
+    if (keyFileInput.files?.length) handleKeyFileImport(keyFileInput.files[0]);
+    keyFileInput.value = '';
+  });
+  document.getElementById('keyPromptLoadBtn')?.addEventListener('click', () => {
+    keyFileInput?.click();
+  });
+  document.getElementById('keyPromptCancelBtn')?.addEventListener('click', dismissKeyPrompt);
+
+  // Export/import key from settings panel.
+  document.getElementById('exportKeyBtn')?.addEventListener('click', exportKeyToFile);
+  document.getElementById('importKeyBtn')?.addEventListener('click', () => {
+    keyFileInput?.click();
   });
 
   for (const evt of ['dragenter', 'dragover']) {
