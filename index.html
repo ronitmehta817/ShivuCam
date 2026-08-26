@@ -410,13 +410,14 @@ finish review, the verdict, and DESIGN.md.
         <h2>Key file</h2>
       </summary>
       <div class="key-actions">
-        <button id="exportKeyBtn" class="btn btn-ghost" type="button">Export key file</button>
-        <button id="importKeyBtn" class="btn btn-ghost" type="button">Import key file</button>
+        <button id="generateKeyBtn" class="btn btn-ghost" type="button">Generate key</button>
+        <button id="exportKeyBtn" class="btn btn-ghost" type="button">Export key</button>
+        <button id="importKeyBtn" class="btn btn-ghost" type="button">Import key</button>
       </div>
+      <p class="hint" id="keyStatus">No encryption key loaded.</p>
       <p class="hint">
-        Your encryption key is saved as a small <strong>digicam.key</strong> file.
-        Export it to back up, or import it on a fresh browser to restore access.
-        Anyone with this file can decrypt your .digicam photos.
+        Generate a key once, then export the <strong>digicam.key</strong> file and keep it safe.
+        Import it on a fresh browser to restore access. Anyone with this file can decrypt your photos.
       </p>
     </details>
   </aside>
@@ -435,17 +436,6 @@ finish review, the verdict, and DESIGN.md.
 <input type="file" id="keyFileInput"
        accept=".key,application/json,*/*" hidden />
 
-<div class="key-prompt-overlay" id="keyPrompt" hidden>
-  <div class="key-prompt">
-    <h3>Encryption key</h3>
-    <p id="keyPromptMessage">Load your existing <strong>digicam.key</strong> file, or generate a new key if this is your first time.</p>
-    <div class="key-prompt-actions">
-      <button id="keyPromptLoadBtn" class="btn btn-primary" type="button">Load key file</button>
-      <button id="keyPromptGenerateBtn" class="btn btn-ghost" type="button">Generate new key</button>
-      <button id="keyPromptCancelBtn" class="btn btn-ghost" type="button">Cancel</button>
-    </div>
-  </div>
-</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
