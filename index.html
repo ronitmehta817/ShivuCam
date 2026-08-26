@@ -54,7 +54,7 @@ finish review, the verdict, and DESIGN.md.
       </p>
 
       <p class="boot-spec">
-        FULL-RES STILLS · DEVICE-LOCKED SAVES
+        FULL-RES STILLS · DEVICE-ENCRYPTED SAVES
       </p>
     </div>
 
@@ -101,12 +101,12 @@ finish review, the verdict, and DESIGN.md.
       <span class="label-full">Reset</span><span class="label-short">Reset</span>
     </button>
     <button id="downloadBtn" class="btn btn-primary" type="button" disabled>
-      <span class="label-full">Secure save</span><span class="label-short">Lock</span>
+      <span class="label-full">Secure save</span><span class="label-short">Save</span>
     </button>
     <!-- The booth's second output. On screen only once there is one to save. -->
     <button id="gifBtn" class="btn btn-ghost" type="button" disabled
-            aria-label="Lock the moving sheet for this device">
-      <span class="label-full">Lock GIF</span><span class="label-short">Lock</span>
+            aria-label="Save the moving sheet encrypted for this device">
+      <span class="label-full">Save GIF</span><span class="label-short">GIF</span>
     </button>
   </div>
 </header>
@@ -138,7 +138,7 @@ finish review, the verdict, and DESIGN.md.
                 </svg>
               </div>
               <p class="dz-title dz-enter" style="--i: 2">
-                <span class="for-mobile">Choose a photo or locked file</span>
+                <span class="for-mobile">Choose a photo or saved .digicam file</span>
                 <span class="for-desk">Drop a photo or .digicam file here</span>
               </p>
               <p class="dz-sub dz-enter" style="--i: 3">
@@ -167,7 +167,7 @@ finish review, the verdict, and DESIGN.md.
               </div>
               <p class="dz-note dz-enter" style="--i: 5">
                 <span class="for-mobile">Secure saves reopen only in this browser profile</span>
-                <span class="for-desk">Images · video · .digicam device lock · plaintext never downloads</span>
+                <span class="for-desk">Images · video · .digicam encrypted save · only opens on this device</span>
               </p>
             </div>
           </div>
@@ -321,8 +321,8 @@ finish review, the verdict, and DESIGN.md.
           <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
         </svg>
         <p>
-          <strong>Device locked</strong>
-          <span>Save writes only encrypted .digicam data. Clearing this browser's site data permanently destroys access.</span>
+          <strong>Key-file encrypted</strong>
+          <span>Files are encrypted with your digicam.key file. Keep it safe — it's needed to open your saved media.</span>
         </p>
       </div>
       <p class="hint" id="videoHint">
@@ -357,7 +357,7 @@ finish review, the verdict, and DESIGN.md.
       <p class="hint">
         Four cuts, two by two, on one sheet. The filter only touches the photos, so
         the paper and the footer stay clean. A sheet shot in the booth also moves —
-        <strong>Lock GIF</strong> secures the same print as a 3 second loop, on the
+        <strong>Save GIF</strong> saves the same print as a 3 second loop, on the
         paper picked here.
       </p>
     </details>
@@ -395,13 +395,28 @@ finish review, the verdict, and DESIGN.md.
           <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
         </svg>
         <p>
-          <strong>Strict device lock</strong>
-          <span>Only this browser profile at this exact site address can unlock the file. There is no recovery key.</span>
+          <strong>Key-file encryption</strong>
+          <span>Your files are encrypted with a key stored in a <strong>digicam.key</strong> file. Keep it safe — it's the only way to recover your photos if browser data is cleared.</span>
         </p>
       </div>
       <p class="hint" id="exportHint">
         PNG or JPEG is prepared in memory, then AES-256-GCM encrypted before
-        download. The saved file is .digicam, never a viewable plaintext image.
+        saving. The first save also delivers a .key file — store it somewhere safe on your device.
+      </p>
+    </details>
+
+    <details class="panel-fold" id="foldKey" open>
+      <summary class="panel-head">
+        <h2>Key file</h2>
+      </summary>
+      <div class="key-actions">
+        <button id="exportKeyBtn" class="btn btn-ghost" type="button">Export key file</button>
+        <button id="importKeyBtn" class="btn btn-ghost" type="button">Import key file</button>
+      </div>
+      <p class="hint">
+        Your encryption key is saved as a small <strong>digicam.key</strong> file.
+        Export it to back up, or import it on a fresh browser to restore access.
+        Anyone with this file can decrypt your .digicam photos.
       </p>
     </details>
   </aside>
@@ -410,13 +425,27 @@ finish review, the verdict, and DESIGN.md.
 <div class="cam-base">
   <span>Digicam CCD-03</span>
   <span class="socket" aria-hidden="true"></span>
-  <span>AES-256-GCM · DEVICE KEY · PLAINTEXT NEVER SAVED</span>
+  <span>AES-256-GCM · DEVICE-ONLY · ENCRYPTED SAVE</span>
 </div>
 
 </div>
 
 <input type="file" id="fileInput"
-       accept="image/*,.digicam,application/x-digicam" multiple hidden />
+       accept="image/*,video/*,.digicam,application/x-digicam,application/octet-stream,*/*" multiple hidden />
+<input type="file" id="keyFileInput"
+       accept=".key,application/json,*/*" hidden />
+
+<div class="key-prompt-overlay" id="keyPrompt" hidden>
+  <div class="key-prompt">
+    <h3>Key file needed</h3>
+    <p>Your browser no longer has the encryption key cached. Load your <strong>digicam.key</strong> file to restore access to your saved photos and videos.</p>
+    <div class="key-prompt-actions">
+      <button id="keyPromptLoadBtn" class="btn btn-primary" type="button">Load key file</button>
+      <button id="keyPromptCancelBtn" class="btn btn-ghost" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="secure.js"></script>
