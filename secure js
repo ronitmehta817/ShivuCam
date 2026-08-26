@@ -1,15 +1,10 @@
-
 /* ===========================================================================
- * secure.js — device-locked media containers
+ * secure.js — device-encrypted media containers with key-file backup
  *
- * A save is never written as a viewable image or video. The media is split into
- * 1 MiB records and every record is authenticated and encrypted with AES-256-GCM
- * under one non-exportable CryptoKey stored in this browser profile's IndexedDB.
- *
- * The key has no recovery path by design. Clearing site data, changing browser
- * profiles, or opening a file on another device makes the ciphertext
- * permanently unreadable. Cloud and drive providers can store the .digicam
- * bytes, but do not receive either the key or plaintext.
+ * Media is split into 1 MiB records, each AES-256-GCM encrypted. The 256-bit
+ * key is stored as a user-held .key file (the permanent source of truth) and
+ * cached in IndexedDB for convenience. If the browser flushes IndexedDB, the
+ * user re-imports their key file to restore access.
  * ========================================================================== */
 
 const DIGICAM_SECURE_MIME = 'application/x-digicam';
@@ -28,6 +23,9 @@ const DGC_DB_VERSION = 1;
 const DGC_KEY_STORE = 'keys';
 const DGC_KEY_ID = 'device-aes-gcm-v1';
 
+const DIGICAM_KEY_FILE_EXTENSION = '.key';
+const DIGICAM_KEY_FILE_VERSION = 1;
+
 class DigicamSecureError extends Error {
   constructor(code, message, cause) {
     super(message);
@@ -41,25 +39,19 @@ function requireDigicamSecureApis() {
   if (location.protocol === 'file:') {
     throw new DigicamSecureError(
       'ORIGIN_REQUIRED',
-      'Device locking needs a stable localhost or HTTPS address.',
+      'Encryption needs a stable localhost or HTTPS address.',
     );
   }
   if (!window.isSecureContext) {
     throw new DigicamSecureError(
       'INSECURE_CONTEXT',
-      'Device locking is only available on localhost or HTTPS.',
+      'Encryption is only available on localhost or HTTPS.',
     );
   }
   if (!globalThis.crypto?.subtle || !globalThis.crypto?.getRandomValues) {
     throw new DigicamSecureError(
       'CRYPTO_UNAVAILABLE',
       'This browser does not provide the required encryption APIs.',
-    );
-  }
-  if (!globalThis.indexedDB) {
-    throw new DigicamSecureError(
-      'KEY_STORAGE_UNAVAILABLE',
-      'This browser cannot store a device-only key.',
     );
   }
 }
@@ -117,50 +109,64 @@ function idbTransaction(transaction) {
   });
 }
 
+const DGC_RAW_KEY_ID = 'device-raw-v1';
+
 function validDeviceKey(key) {
   return Boolean(
     key
     && key.type === 'secret'
     && key.algorithm?.name === 'AES-GCM'
-    && key.extractable === false
     && key.usages?.includes('encrypt')
     && key.usages?.includes('decrypt'),
+  );
+}
+
+function importRawKey(raw) {
+  return crypto.subtle.importKey(
+    'raw',
+    raw,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
   );
 }
 
 async function readDeviceKey(db) {
   const transaction = db.transaction(DGC_KEY_STORE, 'readonly');
   const done = idbTransaction(transaction);
-  const key = await idbRequest(transaction.objectStore(DGC_KEY_STORE).get(DGC_KEY_ID));
+  const store = transaction.objectStore(DGC_KEY_STORE);
+
+  // Prefer the raw-bytes format (reliable across all browsers and refreshes).
+  const raw = await idbRequest(store.get(DGC_RAW_KEY_ID));
+  // Also try the legacy CryptoKey format for backward compat.
+  const legacy = await idbRequest(store.get(DGC_KEY_ID));
   await done;
-  if (key && !validDeviceKey(key)) {
-    throw new DigicamSecureError(
-      'KEY_INVALID',
-      'The stored device key is invalid. Existing locked files cannot be opened.',
-    );
+
+  if (raw instanceof ArrayBuffer || raw instanceof Uint8Array) {
+    const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+    if (bytes.byteLength === 32) return importRawKey(bytes);
   }
-  return key || null;
+
+  // Legacy: a CryptoKey was stored directly (unreliable on mobile).
+  if (legacy && validDeviceKey(legacy)) return legacy;
+
+  // Corrupted data — return null so the key-file import flow can recover.
+  return null;
 }
 
-async function addDeviceKey(db, key) {
+async function addDeviceKey(db, rawBytes) {
   const transaction = db.transaction(DGC_KEY_STORE, 'readwrite');
   const done = idbTransaction(transaction);
   try {
-    await idbRequest(transaction.objectStore(DGC_KEY_STORE).add(key, DGC_KEY_ID));
+    // Store the raw 256-bit key as a plain ArrayBuffer (universally reliable).
+    await idbRequest(
+      transaction.objectStore(DGC_KEY_STORE).add(rawBytes.buffer.slice(0), DGC_RAW_KEY_ID),
+    );
     await done;
-    return key;
+    return importRawKey(rawBytes);
   } catch (error) {
     await done.catch(() => {});
-    // Another tab won the race. Never overwrite its key: doing that would make
-    // a file saved milliseconds earlier impossible to recover.
     if (error?.name === 'ConstraintError') return readDeviceKey(db);
-    if (error?.name === 'DataCloneError') {
-      throw new DigicamSecureError(
-        'KEY_STORAGE_UNSUPPORTED',
-        'This browser cannot persist a non-exportable encryption key.',
-        error,
-      );
-    }
     throw new DigicamSecureError(
       'KEY_STORAGE_FAILED',
       'The device-only key could not be stored.',
@@ -170,7 +176,9 @@ async function addDeviceKey(db, key) {
 }
 
 let cachedDeviceKey = null;
+let cachedRawBytes = null;
 let creatingDeviceKey = null;
+let lastKeyWasNewlyCreated = false;
 
 async function getDigicamDeviceKey({ create = true } = {}) {
   requireDigicamSecureApis();
@@ -178,17 +186,33 @@ async function getDigicamDeviceKey({ create = true } = {}) {
   if (creatingDeviceKey) return creatingDeviceKey;
 
   const readOrCreate = async () => {
-    const db = await openDigicamKeyDb();
+    let db;
+    try {
+      db = await openDigicamKeyDb();
+    } catch (_) {
+      if (!create) {
+        lastKeyWasNewlyCreated = false;
+        return null;
+      }
+      // IndexedDB unavailable — generate key in memory only (key file is
+      // the source of truth, so this still works).
+      const rawBytes = crypto.getRandomValues(new Uint8Array(32));
+      cachedRawBytes = rawBytes;
+      lastKeyWasNewlyCreated = true;
+      return importRawKey(rawBytes);
+    }
     try {
       const existing = await readDeviceKey(db);
-      if (existing || !create) return existing;
+      if (existing || !create) {
+        lastKeyWasNewlyCreated = false;
+        return existing;
+      }
 
-      const generated = await crypto.subtle.generateKey(
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt', 'decrypt'],
-      );
-      return await addDeviceKey(db, generated);
+      // Generate 256 random bits and store as raw bytes.
+      const rawBytes = crypto.getRandomValues(new Uint8Array(32));
+      cachedRawBytes = rawBytes;
+      lastKeyWasNewlyCreated = true;
+      return await addDeviceKey(db, rawBytes);
     } finally {
       db.close();
     }
@@ -213,7 +237,6 @@ async function getDigicamDeviceKey({ create = true } = {}) {
         );
       }
       cachedDeviceKey = key;
-      // Ask the browser not to evict the one key that has no recovery path.
       navigator.storage?.persist?.().catch(() => {});
       return key;
     })
@@ -222,6 +245,148 @@ async function getDigicamDeviceKey({ create = true } = {}) {
     });
 
   return creatingDeviceKey;
+}
+
+function wasKeyNewlyCreated() {
+  return lastKeyWasNewlyCreated;
+}
+
+/* ===========================================================================
+ * Key file — the user-held source of truth
+ * ========================================================================= */
+
+function base64urlEncode(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlDecode(str) {
+  let s = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function generateKeyFileJSON(rawBytes) {
+  return JSON.stringify({
+    v: DIGICAM_KEY_FILE_VERSION,
+    k: base64urlEncode(rawBytes),
+    created: new Date().toISOString(),
+  });
+}
+
+function exportKeyFileBlob(rawBytes) {
+  const json = generateKeyFileJSON(rawBytes);
+  return new Blob([json], { type: 'application/json' });
+}
+
+function parseKeyFileJSON(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (_) {
+    throw new DigicamSecureError('INVALID_KEY_FILE', 'The key file is not valid JSON.');
+  }
+  if (!parsed || parsed.v !== DIGICAM_KEY_FILE_VERSION) {
+    throw new DigicamSecureError(
+      'INVALID_KEY_FILE',
+      'Unrecognized key file version.',
+    );
+  }
+  if (typeof parsed.k !== 'string' || !parsed.k.length) {
+    throw new DigicamSecureError('INVALID_KEY_FILE', 'The key file has no key data.');
+  }
+  let rawBytes;
+  try {
+    rawBytes = base64urlDecode(parsed.k);
+  } catch (_) {
+    throw new DigicamSecureError('INVALID_KEY_FILE', 'The key data is corrupted.');
+  }
+  if (rawBytes.byteLength !== 32) {
+    throw new DigicamSecureError(
+      'INVALID_KEY_FILE',
+      'The key file does not contain a valid 256-bit key.',
+    );
+  }
+  return rawBytes;
+}
+
+async function importKeyFile(file) {
+  if (!(file instanceof Blob) || file.size > 4096) {
+    throw new DigicamSecureError('INVALID_KEY_FILE', 'The file is not a valid key file.');
+  }
+  const text = await file.text();
+  const rawBytes = parseKeyFileJSON(text);
+  cachedRawBytes = rawBytes;
+  await cacheRawKeyInIDB(rawBytes);
+  const key = await importRawKey(rawBytes);
+  cachedDeviceKey = key;
+  return key;
+}
+
+async function cacheRawKeyInIDB(rawBytes) {
+  try {
+    const db = await openDigicamKeyDb();
+    try {
+      const transaction = db.transaction(DGC_KEY_STORE, 'readwrite');
+      const store = transaction.objectStore(DGC_KEY_STORE);
+      await idbRequest(store.put(rawBytes.buffer.slice(0), DGC_RAW_KEY_ID));
+      await idbTransaction(transaction);
+    } finally {
+      db.close();
+    }
+  } catch (_) {
+    // IDB caching is best-effort; the key file is the source of truth.
+  }
+}
+
+async function getRawKeyBytes() {
+  try {
+    const db = await openDigicamKeyDb();
+    try {
+      const transaction = db.transaction(DGC_KEY_STORE, 'readonly');
+      const done = idbTransaction(transaction);
+      const store = transaction.objectStore(DGC_KEY_STORE);
+      const raw = await idbRequest(store.get(DGC_RAW_KEY_ID));
+      await done;
+      if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+      if (raw instanceof Uint8Array) return raw;
+    } finally {
+      db.close();
+    }
+  } catch (_) {
+    // IDB unavailable — fall through to in-memory cache.
+  }
+  return cachedRawBytes || null;
+}
+
+async function hasDeviceKey() {
+  try {
+    const db = await openDigicamKeyDb();
+    try {
+      const transaction = db.transaction(DGC_KEY_STORE, 'readonly');
+      const done = idbTransaction(transaction);
+      const raw = await idbRequest(transaction.objectStore(DGC_KEY_STORE).get(DGC_RAW_KEY_ID));
+      const legacy = await idbRequest(transaction.objectStore(DGC_KEY_STORE).get(DGC_KEY_ID));
+      await done;
+      return Boolean(raw || legacy);
+    } finally {
+      db.close();
+    }
+  } catch (_) {
+    return false;
+  }
+}
+
+function isDigicamKeyFile(file) {
+  return Boolean(
+    file
+    && String(file.name || '').toLowerCase().endsWith(DIGICAM_KEY_FILE_EXTENSION)
+    && !String(file.name || '').toLowerCase().endsWith(DIGICAM_SECURE_EXTENSION),
+  );
 }
 
 function isDigicamSecureFile(file) {
