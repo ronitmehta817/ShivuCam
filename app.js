@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================================
- * Billucam - the look of an early-2000s point-and-shoot, applied in the browser.
+ * Digicam - the look of an early-2000s point-and-shoot, applied in the browser.
  *
  * The pipeline follows the chain a real 2-3 MP CCD camera put an image through,
  * because the order is what makes the result read as authentic rather than as a
@@ -15,7 +15,7 @@
  * 1600px long edge, the long edge of a 2 MP frame. That keeps the look identical
  * across the three resolutions in play: a draft copy that keeps up with a slider
  * being dragged, a larger preview once the slider settles, and the untouched
- * full-resolution pixels on download.
+ * full-resolution pixels before secure save.
  * ========================================================================== */
 
 const PREVIEW_MAX_DIM = 1300;
@@ -27,6 +27,16 @@ const DRAFT_MAX_DIM = 620;
  * LCD on one of these cameras held about 110k pixels.
  */
 const LIVE_MAX_DIM = 480;
+
+/**
+ * A filtered movie is the LCD feed itself: small, fast, and honest to the
+ * cameras this interface imitates. Fifteen frames per second is both the period
+ * look and a realistic ceiling for running the full pixel pipeline on a phone.
+ * The hard stop keeps an in-memory MediaRecorder from taking a tab down.
+ */
+const VIDEO_FPS = 15;
+const VIDEO_MAX_SECONDS = 30;
+const VIDEO_BITS_PER_SECOND = 2_500_000;
 
 /** Long edge of a 2 MP frame; the reference size all feature sizes scale from. */
 const REFERENCE_LONG_EDGE = 1600;
@@ -133,13 +143,15 @@ const PAPERS = {
  * ------------------------------------------------------------------------- */
 
 const state = {
-  mode: 'empty',  // 'empty' | 'camera' | 'editor'
+  mode: 'empty',  // 'empty' | 'camera' | 'editor' | 'video'
   params: { ...SCENE },
   // { cuts: [{ full, preview, draft }], cutW: { full, preview } }
   sheet: null,
   // { cuts: [[canvas x MOTION_FRAMES] x 4] } - the same sheet, moving
   motion: null,
   playing: false,
+  // { blob, url, mime, ext, kind, w, h, duration, hasAudio, name }
+  video: null,
   paper: 'white',  // stock the cuts print on, kept across sheets
   dateStamp: false,
   dateText: '',
@@ -164,6 +176,9 @@ const camera = {
   deviceId: null,
   mirror: false,
   filtered: true,
+  videoMode: false,
+  hasAudio: false,
+  recording: null,
   fps: 0,
   lastFrameAt: 0,
   readoutAt: 0,
@@ -177,8 +192,12 @@ const ui = {
   cameraBtn: el('cameraBtn'),
   dzPickBtn: el('dzPickBtn'),
   dzCameraBtn: el('dzCameraBtn'),
+  dzVideoBtn: el('dzVideoBtn'),
   dzBoothBtn: el('dzBoothBtn'),
   foldAdjustments: el('foldAdjustments'),
+  foldDate: el('foldDate'),
+  foldExport: el('foldExport'),
+  foldVideo: el('foldVideo'),
   resetBtn: el('resetBtn'),
   downloadBtn: el('downloadBtn'),
   gifBtn: el('gifBtn'),
@@ -191,6 +210,7 @@ const ui = {
   camBusy: el('camBusy'),
   camBusyText: el('camBusyText'),
   camDevice: el('camDevice'),
+  camVideo: el('camVideo'),
   camMirror: el('camMirror'),
   camFiltered: el('camFiltered'),
   camReadout: el('camReadout'),
@@ -201,6 +221,8 @@ const ui = {
   boothCount: el('boothCount'),
   boothStep: el('boothStep'),
   boothSlots: el('boothSlots'),
+  videoRecOsd: el('videoRecOsd'),
+  videoRecTime: el('videoRecTime'),
   foldPrint: el('foldPrint'),
   papers: el('papers'),
   canvasWrap: el('canvasWrap'),
@@ -208,6 +230,17 @@ const ui = {
   original: el('originalCanvas'),
   compareHandle: el('compareHandle'),
   compareToggle: el('compareToggle'),
+  videoView: el('videoView'),
+  videoPreview: el('videoPreview'),
+  animationPreview: el('animationPreview'),
+  videoWrap: el('videoWrap'),
+  videoScreenAction: el('videoScreenAction'),
+  videoPlayToggle: el('videoPlayToggle'),
+  videoMeta: el('videoMeta'),
+  videoSummary: el('videoSummary'),
+  videoPanelTitle: el('videoPanelTitle'),
+  videoHint: el('videoHint'),
+  videoRetakeBtn: el('videoRetakeBtn'),
   controls: el('controls'),
   dateStampToggle: el('dateStampToggle'),
   dateText: el('dateText'),
@@ -978,6 +1011,7 @@ function renderTo(layer, p, target) {
 }
 
 const hasImage = () => Boolean(state.sheet || state.preview);
+const restingMode = () => state.video ? 'video' : hasImage() ? 'editor' : 'empty';
 
 /**
  * What the current source renders to, at a given quality. A single photo is one
@@ -1053,9 +1087,46 @@ function requestPreview(quality = 'preview') {
  * near miss worth naming, so the user knows why they got a single frame.
  */
 async function loadFiles(files) {
-  const images = [...files].filter((f) => f.type.startsWith('image/'));
+  const selected = [...files];
+
+  // If a key file is dropped/selected, import it directly.
+  const keyFiles = selected.filter(isDigicamKeyFile);
+  if (keyFiles.length) {
+    await handleKeyFileImport(keyFiles[0]);
+    return;
+  }
+
+  let locked = selected.filter(isDigicamSecureFile);
+
+  // On mobile, the file picker may strip the extension or report an empty MIME.
+  // Fall back to checking the file's magic bytes (DGC1 header) for any
+  // unrecognized file that isn't an image or video.
+  if (!locked.length) {
+    const unknown = selected.filter(
+      (f) => !f.type || (!f.type.startsWith('image/') && !f.type.startsWith('video/')),
+    );
+    for (const f of unknown) {
+      if (f.size >= DGC_HEADER_SIZE) {
+        try {
+          const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+          if (head[0] === 0x44 && head[1] === 0x47 && head[2] === 0x43 && head[3] === 0x31) {
+            locked.push(f);
+          }
+        } catch (_) { /* skip unreadable files */ }
+      }
+    }
+  }
+
+  if (locked.length) {
+    if (selected.length > 1) {
+      showToast('Opening the first encrypted file. Secure files are opened one at a time.');
+    }
+    return loadSecureFile(locked[0]);
+  }
+
+  const images = selected.filter((f) => f.type.startsWith('image/'));
   if (images.length === 0) {
-    showToast('That file is not an image.', true);
+    showToast('Choose an image or a saved .digicam file.', true);
     return;
   }
   if (images.length >= SHEET_CUTS) return loadSheet(images.slice(0, SHEET_CUTS));
@@ -1063,6 +1134,203 @@ async function loadFiles(files) {
     showToast(`A sheet needs four photos, and you picked ${images.length}. Opening the first.`);
   }
   return loadFile(images[0]);
+}
+
+async function loadSecureFile(file) {
+  if (!file) return;
+  stopCamera();
+  setMode(restingMode());
+  setBusy(true, 'Checking encryption key\u2026');
+
+  try {
+    const { blob, metadata } = await decryptDigicamFile(file, (progress) => {
+      setBusy(true, `Decrypting\u2026 ${Math.round(progress * 100)}%`);
+    });
+    setBusy(false);
+    openDecryptedMedia(blob, metadata);
+  } catch (error) {
+    setBusy(false);
+    if (error?.code === 'KEY_MISSING') {
+      // Key not in IDB — prompt user for their key file, then retry.
+      promptForKeyFile(file);
+      return;
+    }
+    showToast(secureOpenError(error), true);
+    console.error(error);
+  }
+}
+
+function openDecryptedMedia(blob, metadata) {
+  if (metadata.kind === 'image') {
+    const unlocked = new File(
+      [blob],
+      metadata.name || 'unlocked-image',
+      {
+        type: metadata.mime,
+        lastModified: Date.parse(metadata.createdAt) || Date.now(),
+      },
+    );
+    loadFile(unlocked);
+    showToast('Decrypted with your key.');
+    return;
+  }
+
+  openVideoOutput({
+    blob,
+    mime: metadata.mime,
+    kind: metadata.kind,
+    name: metadata.name,
+    w: metadata.w || 0,
+    h: metadata.h || 0,
+    duration: metadata.duration || 0,
+    hasAudio: metadata.hasAudio,
+    unlocked: true,
+  });
+}
+
+let pendingSecureFile = null;
+let pendingSaveAfterKeyImport = null;
+
+function promptForKeyFile(secureFile) {
+  pendingSecureFile = secureFile || null;
+  const overlay = document.getElementById('keyPrompt');
+  const generateBtn = document.getElementById('keyPromptGenerateBtn');
+  const message = document.getElementById('keyPromptMessage');
+  if (secureFile) {
+    // Opening an encrypted file — generating a new key won't help.
+    if (message) message.innerHTML = 'Load your <strong>digicam.key</strong> file to decrypt this photo or video.';
+    if (generateBtn) generateBtn.hidden = true;
+  } else {
+    // Saving — user can choose to load existing or generate fresh.
+    if (message) message.innerHTML = 'Load your existing <strong>digicam.key</strong> file, or generate a new key if this is your first time.';
+    if (generateBtn) generateBtn.hidden = false;
+  }
+  if (overlay) overlay.hidden = false;
+}
+
+function dismissKeyPrompt() {
+  const overlay = document.getElementById('keyPrompt');
+  if (overlay) overlay.hidden = true;
+  pendingSecureFile = null;
+  if (pendingSaveAfterKeyImport) {
+    pendingSaveAfterKeyImport.reject(
+      new DigicamSecureError('KEY_MISSING', 'Key file not loaded.'),
+    );
+    pendingSaveAfterKeyImport = null;
+  }
+}
+
+async function handleKeyFileImport(file) {
+  const pendingOpen = pendingSecureFile;
+  const pendingSave = pendingSaveAfterKeyImport;
+  pendingSaveAfterKeyImport = null;
+  dismissKeyPrompt();
+  setBusy(true, 'Importing key file\u2026');
+  try {
+    await importKeyFile(file);
+    showToast('Key file loaded \u00b7 encryption key restored');
+    setBusy(false);
+    if (pendingOpen) {
+      await loadSecureFile(pendingOpen);
+    } else if (pendingSave) {
+      const result = await performLockedSave(
+        pendingSave.blob, pendingSave.metadata, pendingSave.label,
+      );
+      pendingSave.resolve(result);
+    }
+  } catch (error) {
+    setBusy(false);
+    if (pendingSave) pendingSave.reject(error);
+    showToast(
+      error instanceof DigicamSecureError
+        ? error.message
+        : 'Could not read the key file.',
+      true,
+    );
+    console.error(error);
+  }
+}
+
+async function handleGenerateNewKey() {
+  const pendingSave = pendingSaveAfterKeyImport;
+  pendingSaveAfterKeyImport = null;
+  const overlay = document.getElementById('keyPrompt');
+  if (overlay) overlay.hidden = true;
+  pendingSecureFile = null;
+
+  setBusy(true, 'Generating new encryption key\u2026');
+  try {
+    // Force creation of a new key.
+    await getDigicamDeviceKey({ create: true });
+    setBusy(false);
+    showToast('New key generated');
+    if (pendingSave) {
+      const result = await performLockedSave(
+        pendingSave.blob, pendingSave.metadata, pendingSave.label,
+      );
+      pendingSave.resolve(result);
+    }
+  } catch (error) {
+    setBusy(false);
+    if (pendingSave) pendingSave.reject(error);
+    showToast('Key generation failed.', true);
+    console.error(error);
+  }
+}
+
+async function exportKeyToFile() {
+  try {
+    const rawBytes = await getRawKeyBytes();
+    if (!rawBytes) {
+      showToast('No key to export. Save a photo first to generate one.', true);
+      return;
+    }
+    const blob = exportKeyFileBlob(rawBytes);
+    const canShare = navigator.canShare && navigator.share;
+    if (canShare) {
+      const file = new File([blob], 'digicam.key', { type: 'application/json' });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'Digicam encryption key' });
+          showToast('Key file saved \u00b7 keep it safe');
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+        }
+      }
+    }
+    downloadBlobAsFile(blob, 'digicam.key');
+    showToast('Key file downloaded \u00b7 keep it safe');
+  } catch (error) {
+    showToast('Could not export the key file.', true);
+    console.error(error);
+  }
+}
+
+function secureOpenError(error) {
+  switch (error?.code) {
+    case 'KEY_MISSING':
+      return 'No encryption key found. Import your digicam.key file to restore access.';
+    case 'AUTH_FAILED':
+      return 'Wrong key or corrupted file. This file was encrypted with a different key.';
+    case 'ORIGIN_REQUIRED':
+    case 'INSECURE_CONTEXT':
+      return 'Open Digicam from its original localhost or HTTPS address to use the device key.';
+    case 'UNSUPPORTED_VERSION':
+      return 'This .digicam file uses an unsupported secure format.';
+    case 'NOT_DIGICAM':
+    case 'CORRUPT_FILE':
+      return 'This .digicam file is incomplete or invalid.';
+    case 'KEY_INVALID':
+    case 'KEY_STORAGE_FAILED':
+    case 'KEY_STORAGE_UNAVAILABLE':
+    case 'KEY_STORAGE_UNSUPPORTED':
+    case 'KEY_STORAGE_BLOCKED':
+    case 'CRYPTO_UNAVAILABLE':
+      return error.message;
+    default:
+      return 'The locked file could not be opened on this device.';
+  }
 }
 
 async function loadFile(file) {
@@ -1073,7 +1341,8 @@ async function loadFile(file) {
   }
 
   stopCamera();
-  setMode(hasImage() ? 'editor' : 'empty');
+  clearVideoOutput();
+  setMode(restingMode());
   setBusy(true, 'Loading image\u2026');
   try {
     const bitmap = await decode(file);
@@ -1118,7 +1387,8 @@ async function loadFile(file) {
 /** Four files, in the order they were given, onto one sheet. */
 async function loadSheet(files) {
   stopCamera();
-  setMode(hasImage() ? 'editor' : 'empty');
+  clearVideoOutput();
+  setMode(restingMode());
   setBusy(true, 'Printing four cuts\u2026');
   try {
     const bitmaps = [];
@@ -1234,7 +1504,7 @@ function composeSheet(cuts, paperName, cutW, target) {
   // Type is set against the cut, not the sheet, so a caption on the wider sheet
   // stays the size a caption should be rather than growing with the paper.
   ctx.font = `700 ${Math.round(31 * g.u)}px "Archivo Narrow", "Arial Narrow", sans-serif`;
-  ctx.fillText('BILLUCAM CCD-03', cx, footTop + g.footer * 0.46);
+  ctx.fillText('DIGICAM CCD-03', cx, footTop + g.footer * 0.46);
 
   if (spaced) ctx.letterSpacing = `${Math.max(1, Math.round(3 * g.u))}px`;
   ctx.fillStyle = skin.sub;
@@ -1281,6 +1551,7 @@ function openSheet(sources, name, { fromBooth = false } = {}) {
 
   // Whatever was moving belonged to the sheet that just went away.
   clearMotion();
+  clearVideoOutput();
 
   const cuts = sources.map((s) => ({
     full: cutLayer(s.source, s.w, s.h, full),
@@ -1329,7 +1600,7 @@ function syncSheetUi() {
   // drops the sliders rather than offering edits the print is not asking for.
   if (on && state.sheet.fromBooth) document.body.dataset.origin = 'booth';
   else delete document.body.dataset.origin;
-  if (ui.foldPrint) ui.foldPrint.hidden = !on;
+  if (ui.foldPrint) ui.foldPrint.hidden = !on || state.mode === 'video';
   if (!on) return;
   for (const btn of ui.papers.children) {
     const active = btn.dataset.paper === state.paper;
@@ -1342,12 +1613,16 @@ function syncSheetUi() {
  * Camera
  * ========================================================================= */
 
-async function startCamera(deviceId) {
+async function startCamera(deviceId, { videoMode = camera.videoMode } = {}) {
   if (!navigator.mediaDevices?.getUserMedia) {
     showToast('This browser cannot open a camera.', true);
     return;
   }
 
+  if (camera.recording) discardVideoRecording();
+  camera.videoMode = Boolean(videoMode);
+  camera.hasAudio = false;
+  syncCameraCaptureUi();
   setMode('camera');
   setCamBusy(true, 'Starting camera\u2026');
   ui.shutterBtn.disabled = true;
@@ -1372,16 +1647,43 @@ async function startCamera(deviceId) {
     aspectRatio: { ideal: 4 / 3 },
   });
 
+  const audio = camera.videoMode
+    ? {
+      channelCount: { ideal: 1 },
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    }
+    : false;
+
+  let streamError = null;
+  let microphoneFallback = false;
   try {
-    camera.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+    camera.stream = await navigator.mediaDevices.getUserMedia({ video, audio });
   } catch (err) {
+    // A denied or unavailable microphone must not take the camera with it. The
+    // second request is video-only and preserves every other part of movie mode.
+    if (camera.videoMode) {
+      try {
+        camera.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+        microphoneFallback = true;
+      } catch (fallbackError) {
+        streamError = fallbackError;
+      }
+    } else {
+      streamError = err;
+    }
+  }
+
+  if (!camera.stream) {
     setCamBusy(false);
-    showToast(cameraError(err), true);
-    setMode(hasImage() ? 'editor' : 'empty');
+    showToast(cameraError(streamError), true);
+    setMode(restingMode());
     return;
   }
 
   camera.deviceId = deviceId || null;
+  camera.hasAudio = camera.stream.getAudioTracks().length > 0;
 
   if (!camera.video) {
     camera.video = document.createElement('video');
@@ -1398,6 +1700,7 @@ async function startCamera(deviceId) {
     showToast('The camera stream would not start.', true);
     console.error(err);
     stopStream();
+    setMode(restingMode());
     return;
   }
 
@@ -1422,12 +1725,14 @@ async function startCamera(deviceId) {
   await populateCameraDevices();
 
   setCamBusy(false);
-  ui.shutterBtn.disabled = false;
-  ui.boothBtn.disabled = false;
+  syncCameraCaptureUi();
   camera.lastFrameAt = 0;
   camera.fps = 0;
   updateCamReadout();
   cameraLoop();
+  if (microphoneFallback) {
+    showToast('Microphone unavailable. This video will be silent.');
+  }
 }
 
 function cameraLoop() {
@@ -1505,6 +1810,7 @@ function capture() {
   state.sheet = null;
   syncSheetUi();
   clearMotion();
+  clearVideoOutput();
   state.full = shot;
   state.preview = scaledLayer(shot.canvas, w, h, PREVIEW_MAX_DIM);
   state.draft = scaledLayer(shot.canvas, w, h, DRAFT_MAX_DIM);
@@ -1541,8 +1847,10 @@ const booth = { active: false, shots: [], clips: [] };
  * for the key on the empty screen.
  */
 async function openBooth() {
-  if (booth.active) return;
-  if (!camera.stream) await startCamera(camera.deviceId);
+  if (booth.active || camera.recording) return;
+  if (!camera.stream || camera.videoMode) {
+    await startCamera(camera.deviceId, { videoMode: false });
+  }
   // No stream means the camera was refused or is missing; startCamera said why.
   if (!camera.stream) return;
   startBooth();
@@ -1555,7 +1863,7 @@ async function openBooth() {
  * four different cameras, and the same press gives the same print every time.
  */
 function startBooth() {
-  if (booth.active) return;
+  if (booth.active || camera.videoMode || camera.recording) return;
   applyScene();
   camera.filtered = true;
   ui.camFiltered.checked = true;
@@ -1813,9 +2121,240 @@ function showBoothSlots() {
   });
 }
 
+/* --- video recording ----------------------------------------------------- */
+
+/** Opens the same camera directly in movie mode from the empty LCD. */
+async function openVideoCamera() {
+  camera.videoMode = true;
+  await startCamera(camera.deviceId, { videoMode: true });
+}
+
+/**
+ * The browser decides the container it can write. MP4 comes first because it
+ * saves and shares cleanly on iOS; Firefox and older Chromium fall through to
+ * WebM. Feature detection is mandatory here — support is encoder-dependent.
+ */
+function supportedVideoType(hasAudio = false) {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const types = [
+    'video/mp4',
+    ...(hasAudio ? [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+    ] : []),
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  return types.find((type) => MediaRecorder.isTypeSupported?.(type)) || '';
+}
+
+async function startVideoRecording() {
+  if (camera.recording || booth.active || !camera.stream) return;
+  if (typeof MediaRecorder === 'undefined' || typeof ui.camCanvas.captureStream !== 'function') {
+    showToast('This browser cannot record the filtered viewfinder.', true);
+    return;
+  }
+
+  let outputStream;
+  try {
+    outputStream = ui.camCanvas.captureStream(VIDEO_FPS);
+  } catch (err) {
+    showToast('The browser could not turn the filtered viewfinder into a video.', true);
+    console.error(err);
+    return;
+  }
+  const videoTrack = outputStream?.getVideoTracks?.()[0];
+  if (!videoTrack) {
+    showToast('The filtered viewfinder could not be recorded.', true);
+    return;
+  }
+
+  // Audio comes from the same permission request as the camera. Clone it so
+  // ending the recording cannot end the live view before the recorder flushes.
+  const sourceAudio = camera.stream.getAudioTracks()[0];
+  let hasAudio = false;
+  if (sourceAudio) {
+    try {
+      outputStream.addTrack(sourceAudio.clone());
+      hasAudio = true;
+    } catch (_) { /* a silent clip is still a valid clip */ }
+  }
+
+  const mime = supportedVideoType(hasAudio);
+  const options = { videoBitsPerSecond: VIDEO_BITS_PER_SECOND };
+  if (mime) options.mimeType = mime;
+
+  let recorder;
+  try {
+    recorder = new MediaRecorder(outputStream, options);
+  } catch (err) {
+    // Some devices advertise an encoder but cannot allocate it. Let the
+    // browser choose its default once before giving up.
+    try {
+      recorder = new MediaRecorder(outputStream);
+    } catch (fallbackError) {
+      outputStream.getTracks().forEach((track) => track.stop());
+      showToast('This device could not start a video encoder.', true);
+      console.error(err, fallbackError);
+      return;
+    }
+  }
+
+  const recording = {
+    recorder,
+    stream: outputStream,
+    chunks: [],
+    startedAt: performance.now(),
+    duration: 0,
+    timer: 0,
+    limitTimer: 0,
+    stopping: false,
+    discard: false,
+    finalized: false,
+    mime: recorder.mimeType || mime,
+    w: ui.camCanvas.width,
+    h: ui.camCanvas.height,
+    hasAudio,
+  };
+  camera.recording = recording;
+
+  recorder.addEventListener('dataavailable', (event) => {
+    if (event.data?.size) recording.chunks.push(event.data);
+  });
+  recorder.addEventListener('stop', () => finalizeVideoRecording(recording), { once: true });
+  recorder.addEventListener('error', (event) => {
+    showToast('Video recording stopped because the encoder failed.', true);
+    console.error(event.error || event);
+    stopVideoRecording({ discard: true });
+  });
+
+  try {
+    recorder.start(1000);
+  } catch (err) {
+    camera.recording = null;
+    outputStream.getTracks().forEach((track) => track.stop());
+    showToast('Video recording could not start.', true);
+    console.error(err);
+    return;
+  }
+
+  document.body.dataset.videoRecording = 'on';
+  ui.videoRecTime.textContent = '00:00';
+  ui.foldAdjustments.inert = true;
+  ui.foldDate.inert = true;
+  syncCameraCaptureUi();
+  updateVideoRecordingClock();
+  recording.timer = setInterval(updateVideoRecordingClock, 250);
+  recording.limitTimer = setTimeout(
+    () => stopVideoRecording(),
+    VIDEO_MAX_SECONDS * 1000,
+  );
+}
+
+function stopVideoRecording({ discard = false } = {}) {
+  const recording = camera.recording;
+  if (!recording || recording.stopping) return;
+
+  recording.stopping = true;
+  recording.discard = discard;
+  recording.duration = Math.min(
+    VIDEO_MAX_SECONDS * 1000,
+    performance.now() - recording.startedAt,
+  );
+  clearInterval(recording.timer);
+  clearTimeout(recording.limitTimer);
+
+  if (!discard) setCamBusy(true, 'Finishing video\u2026');
+  try {
+    if (recording.recorder.state === 'inactive') {
+      finalizeVideoRecording(recording);
+    } else {
+      recording.recorder.stop();
+    }
+  } catch (err) {
+    recording.discard = true;
+    finalizeVideoRecording(recording);
+    console.error(err);
+  }
+}
+
+function discardVideoRecording() {
+  stopVideoRecording({ discard: true });
+}
+
+function finalizeVideoRecording(recording) {
+  if (recording.finalized) return;
+  recording.finalized = true;
+  clearInterval(recording.timer);
+  clearTimeout(recording.limitTimer);
+  recording.stream.getTracks().forEach((track) => track.stop());
+  if (camera.recording === recording) camera.recording = null;
+
+  delete document.body.dataset.videoRecording;
+  ui.foldAdjustments.inert = booth.active;
+  ui.foldDate.inert = false;
+  setCamBusy(false);
+  syncCameraCaptureUi();
+
+  if (recording.discard) return;
+
+  const mime = recording.recorder.mimeType
+    || recording.mime
+    || recording.chunks.find((chunk) => chunk.type)?.type
+    || 'video/webm';
+  const blob = new Blob(recording.chunks, { type: mime });
+  if (!blob.size) {
+    showToast('The browser returned an empty video. Try recording again.', true);
+    return;
+  }
+
+  openVideoOutput({
+    blob,
+    mime,
+    w: recording.w,
+    h: recording.h,
+    duration: recording.duration,
+    hasAudio: recording.hasAudio,
+  });
+}
+
+function updateVideoRecordingClock() {
+  const recording = camera.recording;
+  if (!recording) return;
+  const elapsed = Math.min(
+    VIDEO_MAX_SECONDS * 1000,
+    performance.now() - recording.startedAt,
+  );
+  ui.videoRecTime.textContent = formatClock(elapsed);
+  updateCamReadout();
+}
+
+function syncCameraCaptureUi() {
+  const recording = Boolean(camera.recording);
+  document.body.dataset.capture = camera.videoMode ? 'video' : 'photo';
+  ui.pickBtn.disabled = recording;
+  ui.resetBtn.disabled = recording || state.mode === 'empty' || state.mode === 'video';
+  ui.camVideo.checked = camera.videoMode;
+  ui.camVideo.disabled = recording;
+  ui.camMirror.disabled = recording;
+  ui.camFiltered.disabled = recording;
+  ui.camDevice.disabled = recording;
+  ui.boothBtn.disabled = !camera.stream || camera.videoMode || recording;
+  ui.shutterBtn.disabled = !camera.stream || booth.active;
+  ui.shutterBtn.setAttribute(
+    'aria-label',
+    camera.videoMode
+      ? recording ? 'Stop recording video' : 'Start recording video'
+      : 'Take photo',
+  );
+  ui.shutterBtn.setAttribute('aria-pressed', String(recording));
+}
+
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function stopCamera() {
+  if (camera.recording) discardVideoRecording();
   endBooth();
   cancelAnimationFrame(camera.frame);
   camera.frame = 0;
@@ -1827,7 +2366,9 @@ function stopStream() {
     for (const track of camera.stream.getTracks()) track.stop();
     camera.stream = null;
   }
+  camera.hasAudio = false;
   if (camera.video) camera.video.srcObject = null;
+  syncCameraCaptureUi();
 }
 
 /** Only labels cameras once permission is granted; before that they are blank. */
@@ -1861,9 +2402,24 @@ function updateCamReadout() {
   updateOsdSpec();
   const video = camera.video;
   if (!video?.videoWidth) { ui.camReadout.textContent = ''; return; }
+  if (camera.recording) {
+    const elapsed = performance.now() - camera.recording.startedAt;
+    const sound = camera.recording.hasAudio ? 'mic' : 'silent';
+    ui.camReadout.textContent =
+      `recording ${formatClock(elapsed)} of ${formatClock(VIDEO_MAX_SECONDS * 1000)} \u00b7 ` +
+      `${camera.recording.w}\u00d7${camera.recording.h} \u00b7 ${VIDEO_FPS} fps \u00b7 ${sound}`;
+    return;
+  }
   if (booth.active) {
     ui.camReadout.textContent =
       `booth \u00b7 ${booth.shots.length} of ${SHEET_CUTS} cuts \u00b7 esc to stop`;
+    return;
+  }
+  if (camera.videoMode) {
+    const sound = camera.hasAudio ? 'mic ready' : 'silent';
+    ui.camReadout.textContent =
+      `movie ${ui.camCanvas.width}\u00d7${ui.camCanvas.height} \u00b7 ` +
+      `${VIDEO_FPS} fps \u00b7 ${sound} \u00b7 30 sec max`;
     return;
   }
   const mp = formatMp(video.videoWidth * video.videoHeight);
@@ -1913,10 +2469,287 @@ const stampSlug = () => {
 };
 
 /* ===========================================================================
- * Export
+ * Secure export
  * ========================================================================= */
 
+async function lockAndDownload(blob, metadata, label) {
+  // If no key is available, always ask the user: load existing or generate new.
+  const existingKey = await getDigicamDeviceKey({ create: false });
+  if (!existingKey) {
+    return new Promise((resolve, reject) => {
+      pendingSaveAfterKeyImport = { blob, metadata, label, resolve, reject };
+      promptForKeyFile(null);
+    });
+  }
+
+  return performLockedSave(blob, metadata, label);
+}
+
+async function performLockedSave(blob, metadata, label) {
+  const { blob: locked } = await encryptDigicamBlob(blob, metadata, (progress) => {
+    setBusy(true, `Encrypting ${label} for this device\u2026 ${Math.round(progress * 100)}%`);
+  });
+  const filename = `digicam-${stampSlug()}${DIGICAM_SECURE_EXTENSION}`;
+
+  // Deliver the key file if the user hasn't received one yet.
+  const keyFileDelivered = localStorage.getItem('digicam-key-file-delivered');
+  const needsKeyFile = !keyFileDelivered || wasKeyNewlyCreated();
+  let keyFileBlob = null;
+  if (needsKeyFile) {
+    const rawBytes = await getRawKeyBytes();
+    if (rawBytes) {
+      keyFileBlob = exportKeyFileBlob(rawBytes);
+      localStorage.setItem('digicam-key-file-delivered', '1');
+    }
+  }
+
+  // On mobile (iOS/Android), the native share sheet is more reliable than
+  // <a download> for blob URLs. It lets the user explicitly "Save to Files".
+  const canShare = navigator.canShare && navigator.share;
+  if (canShare) {
+    const files = [new File([locked], filename, { type: DIGICAM_SECURE_MIME })];
+    if (keyFileBlob) {
+      files.push(new File([keyFileBlob], 'digicam.key', { type: 'application/json' }));
+    }
+    if (navigator.canShare({ files })) {
+      try {
+        await navigator.share({
+          files,
+          title: keyFileBlob ? 'Save photo + key file (keep the .key safe!)' : 'Save encrypted photo',
+        });
+        if (keyFileBlob) {
+          showToast('Saved with key file \u00b7 keep digicam.key safe, you need it to recover files');
+        } else {
+          showToast(`Saved \u00b7 ${formatBytes(locked.size)} \u00b7 encrypted for this device`);
+        }
+        return locked;
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          showToast('Save cancelled.');
+          return locked;
+        }
+      }
+    }
+  }
+
+  // Fallback: programmatic <a download>
+  downloadBlobAsFile(locked, filename);
+  if (keyFileBlob) {
+    // Short delay so the browser doesn't suppress the second download.
+    await new Promise((r) => setTimeout(r, 800));
+    downloadBlobAsFile(keyFileBlob, 'digicam.key');
+  }
+
+  if (keyFileBlob) {
+    showToast('Saved with key file \u00b7 keep digicam.key safe, you need it to recover files');
+  } else {
+    showToast(`Saved \u00b7 ${formatBytes(locked.size)} \u00b7 encrypted for this device`);
+  }
+  return locked;
+}
+
+function downloadBlobAsFile(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+function secureSaveError(error) {
+  switch (error?.code) {
+    case 'ORIGIN_REQUIRED':
+    case 'INSECURE_CONTEXT':
+      return 'Secure save needs the same localhost or HTTPS address every time.';
+    case 'KEY_STORAGE_UNAVAILABLE':
+    case 'KEY_STORAGE_UNSUPPORTED':
+    case 'KEY_STORAGE_FAILED':
+    case 'KEY_STORAGE_BLOCKED':
+    case 'KEY_INVALID':
+      return error.message;
+    case 'CRYPTO_UNAVAILABLE':
+      return 'This browser cannot create the required AES-256 device lock.';
+    case 'MEDIA_TOO_LARGE':
+    case 'INVALID_MEDIA':
+      return error.message;
+    default:
+      return 'Secure save failed. No plaintext file was downloaded.';
+  }
+}
+
+function openVideoOutput({
+  blob,
+  mime,
+  w,
+  h,
+  duration,
+  hasAudio,
+  kind = 'video',
+  name,
+  unlocked = false,
+}) {
+  clearVideoOutput();
+  clearMotion();
+  state.sheet = null;
+  state.full = null;
+  state.preview = null;
+  state.draft = null;
+  syncSheetUi();
+  const ext = kind === 'animation' ? 'gif' : mime.includes('mp4') ? 'mp4' : 'webm';
+  const sourceName = name || `${kind === 'animation' ? 'motion' : 'video'}-${stampSlug()}`;
+  const url = URL.createObjectURL(blob);
+  state.video = {
+    blob, url, mime, ext, kind, w, h, duration, hasAudio: Boolean(hasAudio), name: sourceName,
+  };
+  state.sourceName = sourceName;
+  state.sourceBytes = blob.size;
+  document.body.dataset.mediaKind = kind;
+
+  if (kind === 'animation') {
+    ui.animationPreview.src = url;
+  } else {
+    ui.videoPreview.src = url;
+    ui.videoPreview.load();
+  }
+  stopCamera();
+  setMode('video');
+  updateVideoMeta();
+  const label = kind === 'animation' ? 'Animated sheet' : 'Video';
+  showToast(
+    `${unlocked ? 'Unlocked' : `${label} ready`} \u00b7 ` +
+    `${formatClock(duration)} \u00b7 ${formatBytes(blob.size)}`,
+  );
+}
+
+function clearVideoOutput() {
+  if (ui.videoPreview) {
+    ui.videoPreview.pause();
+    ui.videoPreview.removeAttribute('src');
+    ui.videoPreview.load();
+  }
+  if (ui.animationPreview) ui.animationPreview.removeAttribute('src');
+  if (state.video?.url) URL.revokeObjectURL(state.video.url);
+  state.video = null;
+  delete document.body.dataset.mediaKind;
+  syncVideoPlaybackUi();
+}
+
+function updateVideoMeta() {
+  if (!state.video) {
+    ui.videoMeta.textContent = '';
+    ui.videoSummary.textContent = '';
+    return;
+  }
+  const video = state.video;
+  const format = video.ext.toUpperCase();
+  const sound = video.kind === 'animation'
+    ? 'animated sheet'
+    : video.hasAudio ? 'mono microphone' : 'silent';
+  ui.videoMeta.innerHTML =
+    `<strong>${video.w} \u00d7 ${video.h}</strong> \u00b7 ${format} \u00b7 ` +
+    `${formatClock(video.duration)} \u00b7 ${formatBytes(video.blob.size)}`;
+  const fps = video.kind === 'animation' ? MOTION_FPS : VIDEO_FPS;
+  ui.videoSummary.innerHTML =
+    `<span><strong>${formatClock(video.duration)}</strong> running time</span>` +
+    `<span><strong>${fps} fps</strong> filtered LCD</span>` +
+    `<span><strong>${format}</strong> \u00b7 ${sound}</span>`;
+  const isAnimation = video.kind === 'animation';
+  ui.videoPanelTitle.textContent = isAnimation ? 'Animated sheet' : 'Video';
+  ui.videoRetakeBtn.hidden = isAnimation;
+  ui.videoHint.textContent = isAnimation
+    ? 'This GIF is decrypted only in memory. Save writes an encrypted .digicam file that only opens on this device.'
+    : 'The low-light look is baked into every frame. Clips run at 15 fps for up to 30 seconds. Save encrypts the video for this device before downloading.';
+}
+
+async function playVideoOutput() {
+  if (!state.video || state.video.kind !== 'video') return;
+  try {
+    await ui.videoPreview.play();
+  } catch (err) {
+    ui.videoPlayToggle.checked = false;
+    showToast('Playback could not start. Tap the video and try again.', true);
+    console.error(err);
+  }
+}
+
+function pauseVideoOutput() {
+  ui.videoPreview.pause();
+}
+
+function toggleVideoOutput() {
+  if (!state.video || state.video.kind !== 'video') return;
+  if (ui.videoPreview.paused || ui.videoPreview.ended) {
+    if (ui.videoPreview.ended) ui.videoPreview.currentTime = 0;
+    playVideoOutput();
+  } else {
+    pauseVideoOutput();
+  }
+}
+
+function syncVideoPlaybackUi() {
+  const playing = Boolean(
+    state.video?.kind === 'video'
+    && !ui.videoPreview.paused
+    && !ui.videoPreview.ended,
+  );
+  ui.videoPlayToggle.checked = playing;
+  ui.videoWrap.classList.toggle('is-playing', playing);
+  ui.videoScreenAction.setAttribute(
+    'aria-label',
+    playing ? 'Pause recorded video' : 'Play recorded video',
+  );
+}
+
+async function downloadVideo() {
+  const video = state.video;
+  if (!video) return;
+
+  ui.downloadBtn.disabled = true;
+  setBusy(true, `Preparing ${video.kind === 'animation' ? 'GIF' : 'video'} save\u2026`);
+  try {
+    const storedName = video.name.toLowerCase().endsWith(`.${video.ext}`)
+      ? video.name
+      : `${video.name}-digicam.${video.ext}`;
+    await lockAndDownload(
+      video.blob,
+      {
+        kind: video.kind,
+        mime: video.mime,
+        name: storedName,
+        w: video.w,
+        h: video.h,
+        duration: video.duration,
+        hasAudio: video.hasAudio,
+      },
+      video.kind === 'animation' ? 'GIF' : 'video',
+    );
+    if (!prefersReducedMotion()) {
+      ui.downloadBtn.classList.remove('is-saved');
+      void ui.downloadBtn.offsetWidth;
+      ui.downloadBtn.classList.add('is-saved');
+      ui.downloadBtn.addEventListener(
+        'animationend',
+        () => ui.downloadBtn.classList.remove('is-saved'),
+        { once: true },
+      );
+    }
+  } catch (error) {
+    showToast(secureSaveError(error), true);
+    console.error(error);
+  } finally {
+    setBusy(false);
+    ui.downloadBtn.disabled = state.mode !== 'video' || !state.video;
+  }
+}
+
 async function download() {
+  if (state.mode === 'video') {
+    await downloadVideo();
+    return;
+  }
   if (!hasImage()) return;
   const { w, h } = outputSize('full');
 
@@ -1931,16 +2764,19 @@ async function download() {
     const blob = await toBlob(out, isPng ? 'image/png' : 'image/jpeg', isPng ? undefined : 1);
     if (!blob) throw new Error('encode failed');
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${state.sourceName}-billucam.${isPng ? 'png' : 'jpg'}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setBusy(true, 'Preparing image save\u2026');
+    await lockAndDownload(
+      blob,
+      {
+        kind: 'image',
+        mime: isPng ? 'image/png' : 'image/jpeg',
+        name: `${state.sourceName}-digicam.${isPng ? 'png' : 'jpg'}`,
+        w,
+        h,
+      },
+      'image',
+    );
 
-    showToast(`Saved ${w}\u00d7${h} \u00b7 ${formatBytes(blob.size)}`);
     if (!prefersReducedMotion()) {
       ui.downloadBtn.classList.remove('is-saved');
       void ui.downloadBtn.offsetWidth;
@@ -1952,7 +2788,12 @@ async function download() {
       );
     }
   } catch (err) {
-    showToast('Export failed. Try JPEG, or a smaller image.', true);
+    showToast(
+      err instanceof DigicamSecureError
+        ? secureSaveError(err)
+        : 'Image rendering failed. Try JPEG, or a smaller image.',
+      true,
+    );
     console.error(err);
   } finally {
     setBusy(false);
@@ -1997,20 +2838,27 @@ async function downloadGif() {
       },
     });
 
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'image/gif' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${state.sourceName}-billucam.gif`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-
-    showToast(
-      `Saved ${w}\u00d7${h} \u00b7 ${MOTION_SECONDS}s loop \u00b7 ${formatBytes(bytes.length)}`,
+    const gif = new Blob([bytes], { type: 'image/gif' });
+    setBusy(true, 'Preparing GIF save\u2026');
+    await lockAndDownload(
+      gif,
+      {
+        kind: 'animation',
+        mime: 'image/gif',
+        name: `${state.sourceName}-digicam.gif`,
+        w,
+        h,
+        duration: MOTION_SECONDS * 1000,
+      },
+      'GIF',
     );
   } catch (err) {
-    showToast('The GIF could not be written.', true);
+    showToast(
+      err instanceof DigicamSecureError
+        ? secureSaveError(err)
+        : 'The GIF could not be written.',
+      true,
+    );
     console.error(err);
   } finally {
     setBusy(false);
@@ -2121,28 +2969,44 @@ function stampText() {
 const prefersReducedMotion = () =>
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** Swaps which of the three stage views is on screen and retitles the actions. */
+/** Swaps which of the four stage views is on screen and retitles the actions. */
 function setMode(mode) {
   if (mode !== 'editor') stopPlayback();
+  if (mode !== 'video') pauseVideoOutput();
   state.mode = mode;
   document.body.dataset.mode = mode;
   ui.dropzone.classList.toggle('is-active', mode === 'empty');
   ui.viewer.classList.toggle('is-active', mode === 'editor');
   ui.cameraView.classList.toggle('is-active', mode === 'camera');
+  ui.videoView.classList.toggle('is-active', mode === 'video');
 
-  ui.downloadBtn.disabled = mode !== 'editor';
+  ui.downloadBtn.disabled = mode !== 'editor' && !(mode === 'video' && state.video);
   ui.gifBtn.disabled = mode !== 'editor' || !state.motion;
   // Adjustments apply to the viewfinder too, so resetting them is useful there.
-  ui.resetBtn.disabled = mode === 'empty';
+  ui.resetBtn.disabled = mode === 'empty' || mode === 'video';
+  ui.foldVideo.hidden = mode !== 'video';
+  ui.foldAdjustments.hidden = mode === 'video';
+  ui.foldDate.hidden = mode === 'video';
+  ui.foldExport.hidden = mode === 'video';
+  syncSheetUi();
+
   const camFull = ui.cameraBtn.querySelector('.label-full');
   const camShort = ui.cameraBtn.querySelector('.label-short');
   if (mode === 'camera') {
     if (camFull) camFull.textContent = 'Close camera';
     if (camShort) camShort.textContent = 'Close';
+  } else if (mode === 'video' && state.video?.kind === 'video') {
+    if (camFull) camFull.textContent = 'Record another';
+    if (camShort) camShort.textContent = 'Retake';
   } else {
     if (camFull) camFull.textContent = 'Use camera';
     if (camShort) camShort.textContent = 'Camera';
   }
+
+  const saveFull = ui.downloadBtn.querySelector('.label-full');
+  const saveShort = ui.downloadBtn.querySelector('.label-short');
+  if (saveFull) saveFull.textContent = 'Secure save';
+  if (saveShort) saveShort.textContent = 'Save';
   if (mode !== 'camera') ui.camReadout.textContent = '';
   updateOsdSpec();
 }
@@ -2187,6 +3051,16 @@ function updateMeta() {
  * number used to say 2.0M no matter what was on the screen.
  */
 function updateOsdSpec() {
+  if (state.mode === 'camera' && camera.videoMode && ui.camCanvas.width) {
+    ui.osdSpec.textContent = `${ui.camCanvas.width}W MOV`;
+    return;
+  }
+  if (state.mode === 'video' && state.video) {
+    ui.osdSpec.textContent =
+      `${state.video.w}W ${state.video.kind === 'animation' ? 'GIF' : 'MOV'}`;
+    return;
+  }
+
   let px = 0;
   if (state.mode === 'camera' && camera.video?.videoWidth) {
     px = camera.video.videoWidth * camera.video.videoHeight;
@@ -2207,6 +3081,13 @@ function formatBytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+function formatClock(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function setBusy(on, text) {
@@ -2233,11 +3114,44 @@ function wireEvents() {
     ui.fileInput.click();
   });
 
+  // Keep the app's only disk-write path behind the authenticated lock. This
+  // blocks the browser's accidental "Save image/video as" context menu; it is
+  // not presented as DRM, since screenshots and a controlled browser remain
+  // outside a web page's security boundary.
+  for (const surface of [
+    ui.preview,
+    ui.original,
+    ui.camCanvas,
+    ui.videoPreview,
+    ui.animationPreview,
+  ]) {
+    surface.addEventListener('contextmenu', (event) => event.preventDefault());
+    surface.addEventListener('dragstart', (event) => event.preventDefault());
+  }
+
   wireCamera();
 
   ui.fileInput.addEventListener('change', () => {
     loadFiles(ui.fileInput.files);
     ui.fileInput.value = '';
+  });
+
+  // Key file import wiring.
+  const keyFileInput = document.getElementById('keyFileInput');
+  keyFileInput?.addEventListener('change', () => {
+    if (keyFileInput.files?.length) handleKeyFileImport(keyFileInput.files[0]);
+    keyFileInput.value = '';
+  });
+  document.getElementById('keyPromptLoadBtn')?.addEventListener('click', () => {
+    keyFileInput?.click();
+  });
+  document.getElementById('keyPromptGenerateBtn')?.addEventListener('click', handleGenerateNewKey);
+  document.getElementById('keyPromptCancelBtn')?.addEventListener('click', dismissKeyPrompt);
+
+  // Export/import key from settings panel.
+  document.getElementById('exportKeyBtn')?.addEventListener('click', exportKeyToFile);
+  document.getElementById('importKeyBtn')?.addEventListener('click', () => {
+    keyFileInput?.click();
   });
 
   for (const evt of ['dragenter', 'dragover']) {
@@ -2273,20 +3187,40 @@ function wireEvents() {
     else stopPlayback();
   });
 
+  ui.videoPlayToggle.addEventListener('change', () => {
+    if (ui.videoPlayToggle.checked) playVideoOutput();
+    else pauseVideoOutput();
+  });
+  ui.videoScreenAction.addEventListener('click', toggleVideoOutput);
+  ui.videoPreview.addEventListener('click', toggleVideoOutput);
+  for (const event of ['play', 'pause', 'ended']) {
+    ui.videoPreview.addEventListener(event, syncVideoPlaybackUi);
+  }
+
   document.addEventListener('keydown', (e) => {
     if (state.mode !== 'camera' || e.repeat) return;
     if (e.key === ' ' || e.key === 'Enter') {
       if (e.target.closest('input, select, textarea, button')) return;
       e.preventDefault();
-      if (!booth.active) capture();
+      if (booth.active) return;
+      if (camera.videoMode) {
+        if (camera.recording) stopVideoRecording();
+        else startVideoRecording();
+      } else {
+        capture();
+      }
     } else if (e.key === 'Escape') {
+      if (camera.recording) {
+        stopVideoRecording();
+        return;
+      }
       // Mid-run, Escape belongs to the sequence before it belongs to the camera.
       if (booth.active) {
         cancelBooth();
         return;
       }
       stopCamera();
-      setMode(hasImage() ? 'editor' : 'empty');
+      setMode(restingMode());
     }
   });
 
@@ -2341,10 +3275,16 @@ function wireEvents() {
 function wireCamera() {
   const toggleCamera = () => {
     if (state.mode === 'camera') {
+      if (camera.recording) {
+        stopVideoRecording();
+        return;
+      }
       stopCamera();
-      setMode(hasImage() ? 'editor' : 'empty');
+      setMode(restingMode());
     } else {
-      startCamera(camera.deviceId);
+      startCamera(camera.deviceId, {
+        videoMode: state.mode === 'video' && state.video?.kind === 'video',
+      });
     }
   };
 
@@ -2356,7 +3296,12 @@ function wireCamera() {
   ui.dzCameraBtn.addEventListener('click', (e) => {
     // The dropzone behind this button opens the file picker.
     e.stopPropagation();
-    startCamera();
+    startCamera(undefined, { videoMode: false });
+  });
+
+  ui.dzVideoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openVideoCamera();
   });
 
   ui.dzBoothBtn.addEventListener('click', (e) => {
@@ -2364,7 +3309,14 @@ function wireCamera() {
     openBooth();
   });
 
-  ui.shutterBtn.addEventListener('click', capture);
+  ui.shutterBtn.addEventListener('click', () => {
+    if (camera.videoMode) {
+      if (camera.recording) stopVideoRecording();
+      else startVideoRecording();
+    } else {
+      capture();
+    }
+  });
 
   ui.boothBtn.addEventListener('click', () => {
     if (booth.active) cancelBooth();
@@ -2375,24 +3327,41 @@ function wireCamera() {
     camera.mirror = ui.camMirror.checked;
   });
 
+  ui.camVideo.addEventListener('change', () => {
+    if (camera.recording) return;
+    startCamera(camera.deviceId, { videoMode: ui.camVideo.checked });
+  });
+
   ui.camFiltered.addEventListener('change', () => {
     camera.filtered = ui.camFiltered.checked;
   });
 
   ui.camDevice.addEventListener('change', () => {
-    startCamera(ui.camDevice.value);
+    startCamera(ui.camDevice.value, { videoMode: camera.videoMode });
   });
+
+  ui.videoRetakeBtn.addEventListener('click', openVideoCamera);
 
   // Never keep a camera open in a tab the user has left.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && state.mode === 'camera') {
+      if (camera.recording) {
+        stopVideoRecording();
+        showToast('Recording stopped when the tab was hidden.');
+        return;
+      }
       stopCamera();
-      setMode(hasImage() ? 'editor' : 'empty');
+      setMode(restingMode());
       showToast('Camera closed while the tab was hidden.');
+    } else if (document.hidden && state.mode === 'video') {
+      pauseVideoOutput();
     }
   });
 
-  window.addEventListener('pagehide', stopCamera);
+  window.addEventListener('pagehide', () => {
+    pauseVideoOutput();
+    stopCamera();
+  });
 }
 
 function wireCompareDrag() {
@@ -2452,6 +3421,7 @@ function wireCompareDrag() {
 buildControls();
 wireEvents();
 syncSheetUi();
+syncCameraCaptureUi();
 ui.dateText.disabled = true;
 ui.camDevice.hidden = true;
 
@@ -2523,10 +3493,11 @@ setMode('empty');
 
   function showBoot() {
     clearTimeout(finishTimer);
+    pauseVideoOutput();
     // Powering down must not leave the camera running behind the overlay.
     if (state.mode === 'camera') {
       stopCamera();
-      setMode(hasImage() ? 'editor' : 'empty');
+      setMode(restingMode());
     }
     boot.classList.remove('hidden', 'is-leaving');
     boot.dataset.state = 'on';
