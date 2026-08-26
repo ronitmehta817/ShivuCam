@@ -1,5 +1,5 @@
 /* =============================================================================
- * BILLUCAM CCD-03 — the interface is the back of a 2003 compact camera.
+ * DIGICAM CCD-03 — the interface is the back of a 2003 compact camera.
  * Graphite polycarbonate body, charcoal rubber keys, chrome selectors, one
  * small transflective TFT. Every control is a part you could press.
  *
@@ -466,6 +466,7 @@ body[data-mode="camera"] .rec-dot {
 .seg-btn:focus-visible,
 .paper:focus-visible,
 .shutter:focus-visible,
+.video-screen-action:focus-visible,
 .switch input:focus-visible,
 input:focus-visible,
 summary:focus-visible,
@@ -580,6 +581,16 @@ body[data-mode="empty"] .osd-mode::after { content: "STBY"; }
 body[data-mode="camera"] .osd-mode::after { content: "\25CF REC"; color: var(--led-red); }
 body[data-mode="editor"] .osd-mode::after { content: "\25B6 PLAY"; }
 body[data-mode="editor"][data-output="sheet"] .osd-mode::after { content: "\25B6 4-CUT"; }
+body[data-mode="camera"][data-capture="video"]:not([data-video-recording="on"]) .osd-mode::after {
+  content: "MOV";
+  color: var(--led-green);
+}
+body[data-video-recording="on"] .osd-mode::after {
+  content: "\25CF REC";
+  color: var(--led-red);
+}
+body[data-mode="video"] .osd-mode::after { content: "\25B6 MOV"; }
+body[data-mode="video"][data-media-kind="animation"] .osd-mode::after { content: "\25B6 GIF"; }
 /* The tally reads as a countdown, so the standing REC lamp would double up */
 body[data-booth="on"] .osd-mode::after { content: "\25CF BOOTH"; }
 
@@ -668,6 +679,7 @@ body[data-mode="empty"] .lcd-screen {
 }
 
 
+
 .dz-status {
   display: inline-flex;
   align-items: center;
@@ -713,6 +725,25 @@ body[data-mode="empty"] .lcd-screen {
   justify-content: center;
   gap: 10px;
   margin: 0 0 20px;
+}
+.video-key-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 17px;
+  height: 10px;
+}
+.video-key-icon i:first-child {
+  width: 11px;
+  height: 9px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+.video-key-icon i:last-child {
+  width: 5px;
+  height: 7px;
+  background: currentColor;
+  clip-path: polygon(0 25%, 100% 0, 100% 100%, 0 75%);
 }
 .dz-note {
   margin: 0;
@@ -878,6 +909,7 @@ body[data-mode="empty"] .lcd-screen {
 }
 
 .shutter-ring {
+  position: relative;
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -891,6 +923,37 @@ body[data-mode="empty"] .lcd-screen {
 }
 .shutter:hover:not(:disabled) .shutter-ring { filter: brightness(1.06); }
 
+/* In movie mode the shutter becomes the record/stop key. Shape carries state:
+   a dot before recording, a square while recording, as on a real camera. */
+.shutter-ring::after {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  background: var(--led-red);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--led-red) 65%, transparent);
+  transition:
+    width var(--dur-ui) var(--ease-out),
+    height var(--dur-ui) var(--ease-out),
+    border-radius var(--dur-ui) var(--ease-out),
+    opacity var(--dur-ui) var(--ease-out);
+}
+body[data-capture="video"] .shutter-ring::after {
+  width: 17px;
+  height: 17px;
+  opacity: 1;
+}
+body[data-video-recording="on"] .shutter-ring::after {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  animation: recBlink 1s var(--ease-in-out) infinite;
+}
+
 .cam-readout {
   flex: 0 0 auto;
   min-height: 16px;
@@ -899,6 +962,40 @@ body[data-mode="empty"] .lcd-screen {
   color: var(--text-faint);
   text-align: center;
 }
+
+/* Machine status over the frame. It is outside the canvas, so it never burns
+   into the file unless the separate date-stamp control asks for that. */
+.video-rec-osd {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border-radius: 2px;
+  pointer-events: none;
+  opacity: 0;
+  font: 400 9px/1 var(--font-lcd);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  color: var(--lcd-ink);
+  background: oklch(8% 0.01 200 / 0.72);
+  text-shadow: 0 1px 2px oklch(0% 0 0 / 0.9);
+  transition: opacity var(--dur-ui) var(--ease-out);
+}
+body[data-video-recording="on"] .video-rec-osd { opacity: 1; }
+body[data-video-recording="on"] .cam-brackets { opacity: 0.28; }
+.video-rec-lamp {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--led-red);
+  box-shadow: 0 0 7px color-mix(in oklch, var(--led-red) 75%, transparent);
+  animation: recBlink 1s var(--ease-in-out) infinite;
+}
+.video-rec-limit { color: var(--text-faint); }
 
 /* ---------- the booth ---------- */
 
@@ -1072,7 +1169,8 @@ body[data-booth="on"] .booth-slots { opacity: 1; }
 
 /* ---------- playback ---------- */
 
-.viewer {
+.viewer,
+.video-viewer {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1081,6 +1179,73 @@ body[data-booth="on"] .booth-slots { opacity: 1; }
   gap: 12px;
   padding: 26px 16px 14px;
 }
+
+.video-wrap {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  line-height: 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: oklch(8% 0.01 200);
+  box-shadow: 0 0 0 1px oklch(0% 0 0 / 0.7);
+}
+.video-wrap video,
+.animation-preview {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 276px);
+  background: oklch(8% 0.01 200);
+}
+.animation-preview { display: none; }
+body[data-media-kind="animation"] .video-wrap video,
+body[data-media-kind="animation"] .video-screen-action,
+body[data-media-kind="animation"] .switch-video-play { display: none; }
+body[data-media-kind="animation"] .animation-preview { display: block; }
+
+/* Playback belongs to the LCD, so this is a short machine prompt rather than
+   a browser video-control bar. The stage-foot switch mirrors the same state. */
+.video-screen-action {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 54px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border: 1px solid oklch(92% 0.01 200 / 0.5);
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--lcd-ink);
+  background: oklch(8% 0.01 200 / 0.76);
+  box-shadow: 0 6px 16px oklch(0% 0 0 / 0.4);
+  transition:
+    opacity var(--dur-ui) var(--ease-out),
+    transform var(--dur-ui) var(--ease-out),
+    background var(--dur-ui) var(--ease-out);
+}
+.video-screen-action:hover { background: oklch(16% 0.015 200 / 0.9); }
+.video-screen-action:active {
+  transform: translate(-50%, calc(-50% + 2px));
+}
+.video-screen-action svg {
+  grid-area: 1 / 1;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+.video-pause-icon { display: none; }
+.video-wrap.is-playing .video-screen-action {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.92);
+}
+.video-wrap.is-playing .video-play-icon { display: none; }
+.video-wrap.is-playing .video-pause-icon { display: block; }
 
 .canvas-wrap {
   position: relative;
@@ -1248,6 +1413,86 @@ body[data-motion="on"] #gifBtn { display: inline-flex; }
   color: var(--text-faint);
 }
 .meta strong { color: var(--text-dim); font-weight: 400; }
+
+/* The developed clip's little data plate in the control deck. */
+.video-summary {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--well-hi), var(--well-lo));
+  box-shadow:
+    0 2px 5px oklch(0% 0 0 / 0.38) inset,
+    0 1px 0 var(--edge-soft);
+}
+.video-summary span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font: 700 9px/1.35 var(--font-print);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.video-summary strong {
+  font: 400 9px/1.2 var(--font-lcd);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.video-retake {
+  width: 100%;
+  margin-top: 11px;
+}
+
+/* A warning plate rather than reassuring copy: the lock is intentionally
+   irreversible, so the consequence stays beside every secure save control. */
+.secure-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--well-hi), var(--well-lo));
+  box-shadow:
+    0 2px 5px oklch(0% 0 0 / 0.34) inset,
+    0 1px 0 var(--edge-soft);
+}
+.secure-notice svg {
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: var(--led-amber);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.secure-notice p {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-dim);
+  font: 500 11px/1.4 var(--font-ui);
+}
+.secure-notice strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font: 700 9px/1.2 var(--font-print);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.secure-notice span { overflow-wrap: anywhere; }
+
+.key-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
 
 /* Switch labels inside the screen are OSD print, like everything else on it */
 .lcd-screen .switch span {
@@ -1473,6 +1718,8 @@ input[type="range"]::-moz-range-thumb {
 }
 .switch input:checked { background: linear-gradient(180deg, oklch(42% 0.09 150), oklch(56% 0.11 150)); }
 .switch input:checked::after { transform: translateX(19px); }
+.switch input:disabled { opacity: 0.46; cursor: not-allowed; }
+.switch:has(input:disabled) { cursor: not-allowed; }
 
 .lcd-screen .switch input {
   background: linear-gradient(180deg, oklch(26% 0.01 200), oklch(34% 0.01 200));
@@ -1661,6 +1908,7 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 7px color-mix(in oklch, var(--led-red) 75%, transparent);
   animation: recPulse 1.4s var(--ease-in-out) infinite;
 }
+
 
 /* ---------- power-on screen ---------- */
 
@@ -1965,8 +2213,8 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
       0 -8px 20px oklch(0% 0 0 / 0.35);
   }
 
-  /* Two outputs means two save keys. GIF is three letters, so it can have the
-     narrow column and leave the others their labels. */
+  /* Two outputs means two lock keys. The motion key takes the narrow column
+     and leaves the other four their labels. */
   body[data-motion="on"] .topbar-actions {
     grid-template-columns: 1fr 1fr 1fr 1.15fr 0.72fr;
     gap: 6px;
@@ -2043,7 +2291,8 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   /* Top padding clears the OSD strip. A sheet is tall enough to fill the screen
      top to bottom, and without the reserve it prints over the mode and the
      battery. */
-  .viewer { padding: 23px 8px 6px; gap: 8px; }
+  .viewer,
+  .video-viewer { padding: 23px 8px 6px; gap: 8px; }
 
   /* The frame hugs the photo. The compare layer stretches to fill the frame, so
      a frame that is not the shape of the image distorts the before side — and a
@@ -2057,6 +2306,14 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
        padding above and below the image, the 8px gap, and the 69px foot of
        readout and switches. The screen clips, so a photo that ignored this
        would lose its own caption. */
+    max-height: calc(50dvh - 122px);
+  }
+  .video-wrap { width: auto; max-width: 100%; }
+  .video-wrap video,
+  .animation-preview {
+    width: auto;
+    height: auto;
+    max-width: 100%;
     max-height: calc(50dvh - 122px);
   }
 
@@ -2151,6 +2408,8 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   .stage { position: relative; top: auto; }
   body:not([data-mode="camera"]) .lcd-bezel { height: auto; }
   .canvas-wrap canvas,
+  .video-wrap video,
+  .animation-preview,
   .cam-wrap canvas { max-height: min(70dvh, calc(100dvh - 170px)); }
 }
 
@@ -2173,6 +2432,8 @@ body.is-booted .cam-body { animation: bootStage 560ms var(--ease-out-soft) 60ms 
   body[data-mode="empty"] .lcd-screen,
   .booth-osd.is-counting .booth-count,
   .booth-osd.is-recording .booth-step::before,
+  .video-rec-lamp,
+  body[data-video-recording="on"] .shutter-ring::after,
   .booth-slots i.is-next {
     animation: none !important;
   }
